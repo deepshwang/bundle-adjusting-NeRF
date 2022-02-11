@@ -1,7 +1,6 @@
 name: barf-env
 channels:
   - conda-forge
-  - pytorch
 dependencies:
   - numpy
   - scipy
@@ -10,8 +9,6 @@ dependencies:
   - easydict
   - imageio
   - ipdb
-  - pytorch>=1.9.0
-  - torchvision
   - tensorboard
   - visdom
   - matplotlib
