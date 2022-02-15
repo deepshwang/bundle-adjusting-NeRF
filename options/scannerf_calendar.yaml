@@ -1,0 +1,14 @@
+_parent_: options/scannerf_blender.yaml
+
+data:                                                       # data options
+    dataset: static_blender                                 # dataset name
+    scene: calendar                                         # scene name
+    raw_image_size: [2160, 3840]                            # input image sizes [height,width]
+    image_size: [540, 960]                                  # desired train image size (downsampling factor: 4)
+
+nerf:
+    depth:
+        range: [0, 2]
+
+camera:
+    focal: 2860.2

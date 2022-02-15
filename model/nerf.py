@@ -378,7 +378,7 @@ class NeRF(torch.nn.Module):
             if li!=len(self.mlp_rgb)-1:
                 feat = torch_F.relu(feat)
         rgb = feat.sigmoid_() # [B,...,3]
-        return rgb,density
+        return rgb, density
 
     def forward_samples(self,opt,center,ray,depth_samples,mode=None):
         points_3D_samples = camera.get_3D_points_from_depth(opt,center,ray,depth_samples,multi_samples=True) # [B,HW,N,3]

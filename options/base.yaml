@@ -14,7 +14,8 @@ arch: {}                                                    # architectural opti
 data:                                                       # data options
     root:                                                   # root path to dataset
     dataset:                                                # dataset name
-    image_size: [null,null]                                 # input image sizes [height,width]
+    raw_image_size: [null, null]                            # original input image sizes [height, width]
+    image_size: [null,null]                                 # desired input image sizes [height,width]
     num_workers: 8                                          # number of parallel workers for data loading
     preload: false                                          # preload the entire dataset into the memory
     augment: {}                                             # data augmentation (training only)

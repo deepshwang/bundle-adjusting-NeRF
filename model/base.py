@@ -21,10 +21,10 @@ class Model():
         super().__init__()
         os.makedirs(opt.output_path,exist_ok=True)
 
-    def load_dataset(self,opt,eval_split="val"):
+    def load_dataset(self, opt, eval_split="val"):
         data = importlib.import_module("data.{}".format(opt.data.dataset))
         log.info("loading training data...")
-        self.train_data = data.Dataset(opt,split="train",subset=opt.data.train_sub)
+        self.train_data = data.Dataset(opt, split="train", subset=opt.data.train_sub)
         self.train_loader = self.train_data.setup_loader(opt,shuffle=True)
         log.info("loading test data...")
         if opt.data.val_on_test: eval_split = "test"

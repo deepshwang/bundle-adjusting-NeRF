@@ -19,6 +19,7 @@ class Dataset(torch.utils.data.Dataset):
         super().__init__()
         self.opt = opt
         self.split = split
+        self.raw_H, self.raw_W = self.opt.data.raw_image_size
         self.augment = split=="train" and opt.data.augment
         # define image sizes
         if opt.data.center_crop is not None:
@@ -107,14 +108,14 @@ class Dataset(torch.utils.data.Dataset):
         return image
 
     def preprocess_camera(self,opt,intr,pose,aug=None):
-        intr,pose = intr.clone(),pose.clone()
+        intr = intr.clone()
         # center crop
         intr[0,2] -= (self.raw_W-self.crop_W)/2
         intr[1,2] -= (self.raw_H-self.crop_H)/2
         # resize
-        intr[0] *= opt.W/self.crop_W
-        intr[1] *= opt.H/self.crop_H
-        return intr,pose
+        intr[0] *= opt.data.image_size[1]/self.crop_W
+        intr[1] *= opt.data.image_size[0]/self.crop_H
+        return intr
 
     def apply_color_jitter(self,opt,image,color_jitter):
         mode = image.mode
@@ -127,4 +128,4 @@ class Dataset(torch.utils.data.Dataset):
         return image
 
     def __len__(self):
-        return len(self.list)
+        return len(self.imgfiles)

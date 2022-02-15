@@ -17,14 +17,14 @@ from util import log,debug
 class Dataset(base.Dataset):
 
     def __init__(self,opt,split="train",subset=None):
-        self.raw_H,self.raw_W = 3024,4032
+        self.raw_H,self.raw_W = 3024, 4032
         super().__init__(opt,split)
         self.root = opt.data.root or "data/llff"
-        self.path = "{}/{}".format(self.root,opt.data.scene)
+        self.path = "{}/{}".format(self.root, opt.data.scene)
         self.path_image = "{}/images".format(self.path)
         image_fnames = sorted(os.listdir(self.path_image))
-        poses_raw,bounds = self.parse_cameras_and_bounds(opt)
-        self.list = list(zip(image_fnames,poses_raw,bounds))
+        poses_raw, bounds = self.parse_cameras_and_bounds(opt)
+        self.list = list(zip(image_fnames, poses_raw, bounds))
         # manually split train/val subsets
         num_val_split = int(len(self)*opt.data.val_ratio)
         self.list = self.list[:-num_val_split] if split=="train" else self.list[-num_val_split:]
