@@ -2,6 +2,7 @@ _parent_: options/nerf_blender.yaml
 
 barf_c2f:                                                   # coarse-to-fine scheduling on positional encoding
 
+
 camera:                                                     # camera options
     noise: 0.15                                             # synthetic perturbations on the camera poses (Blender only)
 
@@ -17,3 +18,6 @@ optim:                                                      # optimization optio
 
 visdom:                                                     # Visdom options
     cam_depth: 0.5                                          # size of visualized cameras
+
+scannerf:
+    N_obj:                                                  # Number of foreground object as a prior

@@ -47,7 +47,7 @@ class Model(base.Model):
     def train(self,opt):
         # before training
         log.title("TRAINING START")
-        self.timer = edict(start=time.time(),it_mean=None)
+        self.timer = edict(start=time.time(), it_mean=None)
         self.graph.train()
         self.ep = 0 # dummy for timer
         # training
@@ -198,13 +198,14 @@ class Graph(base.Graph):
             self.nerf_fine = NeRF(opt)
 
     def forward(self,opt,var,mode=None):
-        batch_size = len(var.idx)
-        pose = self.get_pose(opt,var,mode=mode)
+        # var: dataloader output, easydict type
+        batch_size = opt.batch_size
+        pose = self.get_pose(opt, var, mode=mode)
         # render images
         if opt.nerf.rand_rays and mode in ["train","test-optim"]:
             # sample random rays for optimization
-            var.ray_idx = torch.randperm(opt.H*opt.W,device=opt.device)[:opt.nerf.rand_rays//batch_size]
-            ret = self.render(opt,pose,intr=var.intr,ray_idx=var.ray_idx,mode=mode) # [B,N,3],[B,N,1]
+            var.ray_idx = torch.randperm(opt.H * opt.W, device=opt.device)[:opt.nerf.rand_rays//batch_size]
+            ret = self.render(opt, pose, intr=var.intr, ray_idx=var.ray_idx,mode=mode) # [B,N,3],[B,N,1]
         else:
             # render full image (process in slices)
             ret = self.render_by_slices(opt,pose,intr=var.intr,mode=mode) if opt.nerf.rand_rays else \
@@ -220,30 +221,30 @@ class Graph(base.Graph):
             image = image[:,var.ray_idx]
         # compute image losses
         if opt.loss_weight.render is not None:
-            loss.render = self.MSE_loss(var.rgb,image)
+            loss.render = self.MSE_loss(var.rgb, image)
         if opt.loss_weight.render_fine is not None:
             assert(opt.nerf.fine_sampling)
-            loss.render_fine = self.MSE_loss(var.rgb_fine,image)
+            loss.render_fine = self.MSE_loss(var.rgb_fine, image)
         return loss
 
     def get_pose(self,opt,var,mode=None):
         return var.pose
 
-    def render(self,opt,pose,intr=None,ray_idx=None,mode=None):
+    def render(self, opt, pose, intr=None, ray_idx=None, mode=None):
         batch_size = len(pose)
-        center,ray = camera.get_center_and_ray(opt,pose,intr=intr) # [B,HW,3]
+        center, ray = camera.get_center_and_ray(opt, pose, intr=intr) # [B,HW,3]
         while ray.isnan().any(): # TODO: weird bug, ray becomes NaN arbitrarily if batch_size>1, not deterministic reproducible
-            center,ray = camera.get_center_and_ray(opt,pose,intr=intr) # [B,HW,3]
+            center, ray = camera.get_center_and_ray(opt, pose, intr=intr) # [B,HW,3]
         if ray_idx is not None:
             # consider only subset of rays
-            center,ray = center[:,ray_idx],ray[:,ray_idx]
+            center, ray = center[:,ray_idx], ray[:,ray_idx]
         if opt.camera.ndc:
             # convert center/ray representations to NDC
-            center,ray = camera.convert_NDC(opt,center,ray,intr=intr)
+            center, ray = camera.convert_NDC(opt, center, ray, intr=intr)
         # render with main MLP
-        depth_samples = self.sample_depth(opt,batch_size,num_rays=ray.shape[1]) # [B,HW,N,1]
-        rgb_samples,density_samples = self.nerf.forward_samples(opt,center,ray,depth_samples,mode=mode)
-        rgb,depth,opacity,prob = self.nerf.composite(opt,ray,rgb_samples,density_samples,depth_samples)
+        depth_samples = self.sample_depth(opt, batch_size, num_rays=ray.shape[1]) # [B,HW,N,1]
+        rgb_samples, density_samples = self.nerf.forward_samples(opt, center, ray, depth_samples, mode=mode)
+        rgb, depth, opacity, prob = self.nerf.composite(opt, ray, rgb_samples, density_samples, depth_samples)
         ret = edict(rgb=rgb,depth=depth,opacity=opacity) # [B,HW,K]
         # render with fine MLP from coarse MLP
         if opt.nerf.fine_sampling:
@@ -252,8 +253,8 @@ class Graph(base.Graph):
                 depth_samples_fine = self.sample_depth_from_pdf(opt,pdf=prob[...,0]) # [B,HW,Nf,1]
                 depth_samples = torch.cat([depth_samples,depth_samples_fine],dim=2) # [B,HW,N+Nf,1]
                 depth_samples = depth_samples.sort(dim=2).values
-            rgb_samples,density_samples = self.nerf_fine.forward_samples(opt,center,ray,depth_samples,mode=mode)
-            rgb_fine,depth_fine,opacity_fine,_ = self.nerf_fine.composite(opt,ray,rgb_samples,density_samples,depth_samples)
+            rgb_samples, density_samples = self.nerf_fine.forward_samples(opt,center,ray,depth_samples,mode=mode)
+            rgb_fine, depth_fine, opacity_fine, _ = self.nerf_fine.composite(opt,ray,rgb_samples,density_samples,depth_samples)
             ret.update(rgb_fine=rgb_fine,depth_fine=depth_fine,opacity_fine=opacity_fine) # [B,HW,K]
         return ret
 
@@ -271,9 +272,10 @@ class Graph(base.Graph):
         return ret_all
 
     def sample_depth(self,opt,batch_size,num_rays=None):
-        depth_min,depth_max = opt.nerf.depth.range
+        depth_min, depth_max = opt.nerf.depth.range
         num_rays = num_rays or opt.H*opt.W
-        rand_samples = torch.rand(batch_size,num_rays,opt.nerf.sample_intvs,1,device=opt.device) if opt.nerf.sample_stratified else 0.5
+        rand_samples = torch.rand(batch_size,num_rays,opt.nerf.sample_intvs,1,device=opt.device)\
+            if opt.nerf.sample_stratified else 0.5
         rand_samples += torch.arange(opt.nerf.sample_intvs,device=opt.device)[None,None,:,None].float() # [B,HW,N,1]
         depth_samples = rand_samples/opt.nerf.sample_intvs*(depth_max-depth_min)+depth_min # [B,HW,N,1]
         depth_samples = dict(
@@ -282,7 +284,7 @@ class Graph(base.Graph):
         )[opt.nerf.depth.param]
         return depth_samples
 
-    def sample_depth_from_pdf(self,opt,pdf):
+    def sample_depth_from_pdf(self, opt, pdf):
         depth_min,depth_max = opt.nerf.depth.range
         # get CDF from PDF (along last dimension)
         cdf = pdf.cumsum(dim=-1) # [B,HW,N]
@@ -304,7 +306,6 @@ class Graph(base.Graph):
         return depth_samples[...,None] # [B,HW,Nf,1]
 
 class NeRF(torch.nn.Module):
-
     def __init__(self,opt):
         super().__init__()
         self.define_network(opt)
@@ -347,7 +348,7 @@ class NeRF(torch.nn.Module):
             torch.nn.init.xavier_uniform_(linear.weight,gain=relu_gain)
         torch.nn.init.zeros_(linear.bias)
 
-    def forward(self,opt,points_3D,ray_unit=None,mode=None): # [B,...,3]
+    def forward(self, opt, points_3D, latent=None, ray_unit=None, mode=None): # [B,...,3]
         if opt.arch.posenc:
             points_enc = self.positional_encoding(opt,points_3D,L=opt.arch.posenc.L_3D)
             points_enc = torch.cat([points_3D,points_enc],dim=-1) # [B,...,6L+3]
@@ -415,3 +416,4 @@ class NeRF(torch.nn.Module):
         input_enc = torch.stack([sin,cos],dim=-2) # [B,...,N,2,L]
         input_enc = input_enc.view(*shape[:-1],-1) # [B,...,2NL]
         return input_enc
+

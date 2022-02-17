@@ -47,13 +47,13 @@ class Model():
             self.sched = scheduler(self.optim,**kwargs)
 
     def restore_checkpoint(self,opt):
-        epoch_start,iter_start = None,None
+        epoch_start, iter_start = None, None
         if opt.resume:
             log.info("resuming from previous checkpoint...")
-            epoch_start,iter_start = util.restore_checkpoint(opt,self,resume=opt.resume)
+            epoch_start, iter_start = util.restore_checkpoint(opt,self,resume=opt.resume)
         elif opt.load is not None:
             log.info("loading weights from checkpoint {}...".format(opt.load))
-            epoch_start,iter_start = util.restore_checkpoint(opt,self,load_name=opt.load)
+            epoch_start, iter_start = util.restore_checkpoint(opt,self,load_name=opt.load)
         else:
             log.info("initializing weights from scratch...")
         self.epoch_start = epoch_start or 0
@@ -100,7 +100,7 @@ class Model():
             # train iteration
             var = edict(batch)
             var = util.move_to_device(var,opt.device)
-            loss = self.train_iteration(opt,var,loader)
+            loss = self.train_iteration(opt, var, loader)
         # after train epoch
         lr = self.sched.get_last_lr()[0] if opt.optim.sched else opt.optim.lr
         log.loss_train(opt,self.ep+1,lr,loss.all,self.timer)

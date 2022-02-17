@@ -49,7 +49,8 @@ class Dataset(base.Dataset):
         intr = self.preprocess_camera(opt, intr, pose=None, aug=aug)
         sample.update(
             image=image,
-            intr=intr
+            intr=intr,
+            idx=idx
         )
         return sample
 

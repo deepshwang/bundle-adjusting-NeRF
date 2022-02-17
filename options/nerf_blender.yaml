@@ -7,8 +7,10 @@ arch:                                                       # architectural opti
     posenc:                                                 # positional encoding
         L_3D: 10                                            # number of bases (3D point)
         L_view: 4                                           # number of bases (viewpoint)
+        L_pose:
     density_activ: softplus                                 # activation function for output volume density
     tf_init: true                                           # initialize network weights in TensorFlow style
+    dim_latent:                                             # latent code dimension (DynaNeRF)
 
 nerf:                                                       # NeRF-specific options
     view_dep: true                                          # condition MLP on viewpoint
