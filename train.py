@@ -24,7 +24,7 @@ def main():
         m.build_networks(opt)
         m.setup_optimizer(opt)
         m.restore_checkpoint(opt)
-        m.setup_visualizer(opt)
+        # m.setup_visualizer(opt)
 
         m.train(opt)
 

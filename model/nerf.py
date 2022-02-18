@@ -51,13 +51,13 @@ class Model(base.Model):
         self.graph.train()
         self.ep = 0 # dummy for timer
         # training
-        if self.iter_start==0: self.validate(opt,0)
+        if self.iter_start==0: self.validate(opt, 0)
         loader = tqdm.trange(opt.max_iter,desc="training",leave=False)
         for self.it in loader:
             if self.it<self.iter_start: continue
             # set var to all available images
             var = self.train_data.all
-            self.train_iteration(opt,var,loader)
+            self.train_iteration(opt,var,loader, mode='train')
             if opt.optim.sched: self.sched.step()
             if self.it%opt.freq.val==0: self.validate(opt,self.it)
             if self.it%opt.freq.ckpt==0: self.save_checkpoint(opt,ep=None,it=self.it)
@@ -390,7 +390,7 @@ class NeRF(torch.nn.Module):
         rgb_samples,density_samples = self.forward(opt,points_3D_samples,ray_unit=ray_unit_samples,mode=mode) # [B,HW,N],[B,HW,N,3]
         return rgb_samples,density_samples
 
-    def composite(self,opt,ray,rgb_samples,density_samples,depth_samples):
+    def composite(self, opt, ray, rgb_samples, density_samples, depth_samples):
         ray_length = ray.norm(dim=-1,keepdim=True) # [B,HW,1]
         # volume rendering: compute probability (using quadrature)
         depth_intv_samples = depth_samples[...,1:,0]-depth_samples[...,:-1,0] # [B,HW,N-1]

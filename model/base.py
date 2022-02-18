@@ -149,7 +149,7 @@ class Model():
         for it,batch in enumerate(loader):
             var = edict(batch)
             var = util.move_to_device(var,opt.device)
-            var = self.graph.forward(opt,var,mode="val")
+            var = self.graph.forward(opt, var, mode="val")
             loss = self.graph.compute_loss(opt,var,mode="val")
             loss = self.summarize_loss(opt,var,loss)
             for key in loss:

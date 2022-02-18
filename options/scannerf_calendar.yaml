@@ -10,6 +10,7 @@ data:                                                       # data options
 
 arch:
     dim_latent: 256                                         # latent code dimension
+    layers_rgb: [null, 128, 3]                            # Last dimension feeds into neural renderer
     posenc:
         L_pose: 4
 

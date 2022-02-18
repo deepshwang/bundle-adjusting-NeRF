@@ -55,7 +55,7 @@ class Pose():
         R_b,t_b = pose_b[...,:3],pose_b[...,3:]
         R_new = R_b@R_a
         t_new = (R_b@t_a+t_b)[...,0]
-        pose_new = self(R=R_new,t=t_new)
+        pose_new = self(R=R_new,  t=t_new)
         return pose_new
 
 class Lie():
@@ -65,8 +65,8 @@ class Lie():
 
     def so3_to_SO3(self,w): # [...,3]
         wx = self.skew_symmetric(w)
-        theta = w.norm(dim=-1)[...,None,None]
-        I = torch.eye(3,device=w.device,dtype=torch.float32)
+        theta = w.norm(dim=-1)[..., None, None]
+        I = torch.eye(3, device=w.device, dtype=torch.float32)
         A = self.taylor_A(theta)
         B = self.taylor_B(theta)
         R = I+A*wx+B*wx@wx
@@ -109,9 +109,9 @@ class Lie():
     def skew_symmetric(self,w):
         w0,w1,w2 = w.unbind(dim=-1)
         O = torch.zeros_like(w0)
-        wx = torch.stack([torch.stack([O,-w2,w1],dim=-1),
-                          torch.stack([w2,O,-w0],dim=-1),
-                          torch.stack([-w1,w0,O],dim=-1)],dim=-2)
+        wx = torch.stack([torch.stack([O,-w2,w1], dim=-1),
+                          torch.stack([w2,O,-w0], dim=-1),
+                          torch.stack([-w1,w0,O], dim=-1)], dim=-2)
         return wx
 
     def taylor_A(self,x,nth=10):
