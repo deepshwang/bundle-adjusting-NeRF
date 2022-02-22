@@ -202,13 +202,13 @@ class Graph(base.Graph):
         batch_size = opt.batch_size
         pose = self.get_pose(opt, var, mode=mode)
         # render images
-        if opt.nerf.rand_rays and mode in ["train","test-optim"]:
+        if opt.nerf.rand_rays and mode in ["train", "test-optim"]:
             # sample random rays for optimization
             var.ray_idx = torch.randperm(opt.H * opt.W, device=opt.device)[:opt.nerf.rand_rays//batch_size]
             ret = self.render(opt, pose, intr=var.intr, ray_idx=var.ray_idx,mode=mode) # [B,N,3],[B,N,1]
         else:
             # render full image (process in slices)
-            ret = self.render_by_slices(opt,pose,intr=var.intr,mode=mode) if opt.nerf.rand_rays else \
+            ret = self.render_by_slices(opt, pose, intr=var.intr, mode=mode) if opt.nerf.rand_rays else \
                   self.render(opt,pose,intr=var.intr,mode=mode) # [B,HW,3],[B,HW,1]
         var.update(ret)
         return var
@@ -258,14 +258,14 @@ class Graph(base.Graph):
             ret.update(rgb_fine=rgb_fine,depth_fine=depth_fine,opacity_fine=opacity_fine) # [B,HW,K]
         return ret
 
-    def render_by_slices(self,opt,pose,intr=None,mode=None):
-        ret_all = edict(rgb=[],depth=[],opacity=[])
+    def render_by_slices(self, opt, pose, intr=None, mode=None):
+        ret_all = edict(rgb=[], depth=[], opacity=[])
         if opt.nerf.fine_sampling:
-            ret_all.update(rgb_fine=[],depth_fine=[],opacity_fine=[])
+            ret_all.update(rgb_fine=[], depth_fine=[], opacity_fine=[])
         # render the image by slices for memory considerations
         for c in range(0,opt.H*opt.W,opt.nerf.rand_rays):
             ray_idx = torch.arange(c,min(c+opt.nerf.rand_rays,opt.H*opt.W),device=opt.device)
-            ret = self.render(opt,pose,intr=intr,ray_idx=ray_idx,mode=mode) # [B,R,3],[B,R,1]
+            ret = self.render(opt,pose, intr=intr, ray_idx=ray_idx, mode=mode) # [B,R,3],[B,R,1]
             for k in ret: ret_all[k].append(ret[k])
         # group all slices of images
         for k in ret_all: ret_all[k] = torch.cat(ret_all[k],dim=1)

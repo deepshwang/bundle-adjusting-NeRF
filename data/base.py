@@ -25,9 +25,9 @@ class Dataset(torch.utils.data.Dataset):
         if opt.data.center_crop is not None:
             self.crop_H = int(self.raw_H*opt.data.center_crop)
             self.crop_W = int(self.raw_W*opt.data.center_crop)
-        else: self.crop_H,self.crop_W = self.raw_H,self.raw_W
+        else: self.crop_H, self.crop_W = self.raw_H, self.raw_W
         if not opt.H or not opt.W:
-            opt.H,opt.W = self.crop_H,self.crop_W
+            opt.H, opt.W = self.crop_H, self.crop_W
 
     def setup_loader(self,opt,shuffle=False,drop_last=False):
         loader = torch.utils.data.DataLoader(self,

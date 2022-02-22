@@ -1,5 +1,10 @@
 _parent_: options/scannerf_blender.yaml
 
+batch_size: 1                                               # batch size (not used for NeRF/BARF)
+max_epoch:                                                  # train to maximum number of epochs (not used for NeRF/BARF)
+max_iter: 200000                                            # train to maximum number of iterations
+
+
 H: 540
 W: 960
 
@@ -10,7 +15,7 @@ data:                                                       # data options
 
 arch:
     dim_latent: 256                                         # latent code dimension
-    layers_rgb: [null, 128, 3]                            # Last dimension feeds into neural renderer
+    layers_rgb: [null, 128, 3]                              # Last dimension feeds into neural renderer
     posenc:
         L_pose: 4
 

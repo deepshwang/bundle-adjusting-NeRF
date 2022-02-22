@@ -258,12 +258,11 @@ class Graph(base.Graph):
         self.pose_eye = torch.eye(3, 4).to(opt.device)
         self.obj_pose_init = torch.eye(3, 4).to(opt.device)
         # In ScanNeRF, camera pose is set as global pose (eye(4))
-        self.world_pose = torch.eye(4).to(opt.device)
+        self.world_pose = torch.eye(3, 4).to(opt.device)
         ### Models / trainable parameters ###
         self.scannerf = torch.nn.ModuleList(2 * [nerf.NeRF(opt)] + 2 * self.N_obj * [CondNeRF(opt)])
         # self.renderer = NeuralRenderer()
         self.latent = torch.nn.Embedding(self.N_obj, opt.arch.dim_latent).to(opt.device)
-        self.se3_refine = None
 
 
     def forward(self, opt, var, mode=None):
@@ -306,14 +305,15 @@ class Graph(base.Graph):
         for i in range(self.N_obj + 1):
             # Background object: normal NeRF rendering
             if i == 0:
-                rgb_samples, density_samples = self.scannerf[i].forward_samples(opt, center, ray, depth_samples,
+                rgb_samples, density_samples = self.scannerf[2*i].forward_samples(opt, center, ray, depth_samples,
                                                                                 mode=mode)
 
             # Foreground objects: bundle adjusting pose and conditional nerf
             else:
-                latent = self.latent(i)
-                rgb_samples, density_samples = self.scannerf[i].forward_samples(opt, center, ray,
+                latent = self.latent.weight[i-1]
+                rgb_samples, density_samples = self.scannerf[2*i].forward_samples(opt, center, ray,
                                                                                 depth_samples, latent, pose, mode=mode)
+
             composite_rgb_samples += rgb_samples / (self.N_obj + 1)
             composite_density_samples += density_samples / (self.N_obj + 1)
             prob = self.composite(opt, ray, rgb_samples, density_samples, depth_samples, prob_only=True)
@@ -325,12 +325,12 @@ class Graph(base.Graph):
                     depth_samples = torch.cat([depth_samples, depth_samples_fine], dim=2)  # [B,HW,N+Nf,1]
                     depth_samples = depth_samples.sort(dim=2).values
                     if i == 0:
-                        rgb_samples, density_samples = self.scannerf[i + 1].forward_samples(opt, center, ray,
+                        rgb_samples, density_samples = self.scannerf[2*i + 1].forward_samples(opt, center, ray,
                                                                                             depth_samples,
                                                                                             mode=mode)
                     # Foreground objects: bundle adjusting pose and conditional nerf
                     else:
-                        rgb_samples, density_samples = self.scannerf[i + 1].forward_samples(opt, center, ray,
+                        rgb_samples, density_samples = self.scannerf[2*i + 1].forward_samples(opt, center, ray,
                                                                                             depth_samples, latent, pose,
                                                                                             mode=mode)
                     composite_rgb_samples_fine += rgb_samples / (self.N_obj + 1)
@@ -344,6 +344,20 @@ class Graph(base.Graph):
 
         return edict(rgb=rgb, depth=depth, opacity=opacity,
                      rgb_fine=rgb_fine, depth_fine=depth_fine, opacity_fine=opacity_fine)  # [B,HW,K]
+
+
+    def render_by_slices(self, opt, pose, latent, intr=None, mode=None):
+        ret_all = edict(rgb=[], depth=[], opacity=[])
+        if opt.nerf.fine_sampling:
+            ret_all.update(rgb_fine=[], depth_fine=[], opacity_fine=[])
+        # render the image by slices for memory considerations
+        for c in range(0,opt. H*opt.W, opt.nerf.rand_rays):
+            ray_idx = torch.arange(c, min(c+opt.nerf.rand_rays, opt.H*opt.W), device=opt.device)
+            ret = self.render(opt, pose, latent, intr=intr, ray_idx=ray_idx, mode=mode) # [B,R,3],[B,R,1]
+            for k in ret: ret_all[k].append(ret[k])
+        # group all slices of images
+        for k in ret_all: ret_all[k] = torch.cat(ret_all[k],dim=1)
+        return ret_all
 
 
     def sample_depth(self, opt, batch_size, num_rays=None):
@@ -388,7 +402,7 @@ class Graph(base.Graph):
             var.se3_refine = self.se3_refine.weight[var.idx]
             # 0th frames' object pose is initialized as fixed hyperparameter
             pose = camera.lie.se3_to_SE3(var.se3_refine)
-            pose[var.idx == 0] = self.obj_pose_init
+            # pose[var.idx == 0] = self.obj_pose_init
         elif mode in ["eval", "test-optim"]:
             # align test pose to refined coordinate system (up to sim3)
             sim3 = self.sim3
@@ -525,7 +539,7 @@ class CondNeRF(torch.nn.Module):
         points_3D_samples = camera.to_hom(points_3D_samples)
         # [B, n_rays, n_samples, 4]
         # Rigid transformation of points with learned pose
-        points_3D_samples = torch.matmul(pose[:, None, ...], points_3D_samples)
+        points_3D_samples = camera.world2cam(points_3D_samples, pose)
 
         latent = latent[None, None, None, :].expand_as(points_3D_samples)
 
@@ -556,109 +570,109 @@ class CondNeRF(torch.nn.Module):
         return input_enc
 
 
-class NeuralRenderer(nn.Module):
-    ''' Neural renderer class
-    Args:
-        n_feat (int): number of features
-        input_dim (int): input dimension; if not equal to n_feat,
-            it is projected to n_feat with a 1x1 convolution
-        out_dim (int): output dimension
-        final_actvn (bool): whether to apply a final activation (sigmoid)
-        min_feat (int): minimum features
-        img_size (int): output image size
-        use_rgb_skip (bool): whether to use RGB skip connections
-        upsample_feat (str): upsampling type for feature upsampling
-        upsample_rgb (str): upsampling type for rgb upsampling
-        use_norm (bool): whether to use normalization
-    '''
-
-    def __init__(
-            self, n_feat=128, input_dim=128, out_dim=3, final_actvn=True,
-            min_feat=32, img_size=64, use_rgb_skip=True,
-            upsample_feat="near_neigh", upsample_rgb="bilinear", use_norm=False,
-            **kwargs):
-        super().__init__()
-        self.final_actvn = final_actvn
-        self.input_dim = input_dim
-        self.use_rgb_skip = use_rgb_skip
-        self.use_norm = use_norm
-        n_blocks = int(log2(img_size) - 4)
-
-        assert (upsample_feat in ("near_neigh", "bilinear"))
-        if upsample_feat == "near_neigh":
-            self.upsample_2 = nn.Upsample(scale_factor=2.)
-        elif upsample_feat == "bilinear":
-            self.upsample_2 = nn.Sequential(nn.Upsample(
-                scale_factor=2, mode='bilinear', align_corners=False), Blur())
-
-        assert (upsample_rgb in ("near_neigh", "bilinear"))
-        if upsample_rgb == "near_neigh":
-            self.upsample_rgb = nn.Upsample(scale_factor=2.)
-        elif upsample_rgb == "bilinear":
-            self.upsample_rgb = nn.Sequential(nn.Upsample(
-                scale_factor=2, mode='bilinear', align_corners=False), Blur())
-
-        if n_feat == input_dim:
-            self.conv_in = lambda x: x
-        else:
-            self.conv_in = nn.Conv2d(input_dim, n_feat, 1, 1, 0)
-
-        self.conv_layers = nn.ModuleList(
-            [nn.Conv2d(n_feat, n_feat // 2, 3, 1, 1)] +
-            [nn.Conv2d(max(n_feat // (2 ** (i + 1)), min_feat),
-                       max(n_feat // (2 ** (i + 2)), min_feat), 3, 1, 1)
-             for i in range(0, n_blocks - 1)]
-        )
-        if use_rgb_skip:
-            self.conv_rgb = nn.ModuleList(
-                [nn.Conv2d(input_dim, out_dim, 3, 1, 1)] +
-                [nn.Conv2d(max(n_feat // (2 ** (i + 1)), min_feat),
-                           out_dim, 3, 1, 1) for i in range(0, n_blocks)]
-            )
-        else:
-            self.conv_rgb = nn.Conv2d(
-                max(n_feat // (2 ** (n_blocks)), min_feat), 3, 1, 1)
-
-        if use_norm:
-            self.norms = nn.ModuleList([
-                nn.InstanceNorm2d(max(n_feat // (2 ** (i + 1)), min_feat))
-                for i in range(n_blocks)
-            ])
-        self.actvn = nn.LeakyReLU(0.2, inplace=True)
-
-    def forward(self, x):
-
-        net = self.conv_in(x)
-
-        if self.use_rgb_skip:
-            rgb = self.upsample_rgb(self.conv_rgb[0](x))
-
-        for idx, layer in enumerate(self.conv_layers):
-            hid = layer(self.upsample_2(net))
-            if self.use_norm:
-                hid = self.norms[idx](hid)
-            net = self.actvn(hid)
-
-            if self.use_rgb_skip:
-                rgb = rgb + self.conv_rgb[idx + 1](net)
-                if idx < len(self.conv_layers) - 1:
-                    rgb = self.upsample_rgb(rgb)
-
-        if not self.use_rgb_skip:
-            rgb = self.conv_rgb(net)
-
-        if self.final_actvn:
-            rgb = torch.sigmoid(rgb)
-        return rgb
-
-
-class Blur(nn.Module):
-    def __init__(self):
-        super().__init__()
-        f = torch.Tensor([1, 2, 1])
-        self.register_buffer('f', f)
-
-    def forward(self, x):
-        f = self.f
-        f = f[None, None, :] * f[None, :, None]
-        return filter2D(x, f, normalized=True)
+# class NeuralRenderer(nn.Module):
+#     ''' Neural renderer class
+#     Args:
+#         n_feat (int): number of features
+#         input_dim (int): input dimension; if not equal to n_feat,
+#             it is projected to n_feat with a 1x1 convolution
+#         out_dim (int): output dimension
+#         final_actvn (bool): whether to apply a final activation (sigmoid)
+#         min_feat (int): minimum features
+#         img_size (int): output image size
+#         use_rgb_skip (bool): whether to use RGB skip connections
+#         upsample_feat (str): upsampling type for feature upsampling
+#         upsample_rgb (str): upsampling type for rgb upsampling
+#         use_norm (bool): whether to use normalization
+#     '''
+#
+#     def __init__(
+#             self, n_feat=128, input_dim=128, out_dim=3, final_actvn=True,
+#             min_feat=32, img_size=64, use_rgb_skip=True,
+#             upsample_feat="near_neigh", upsample_rgb="bilinear", use_norm=False,
+#             **kwargs):
+#         super().__init__()
+#         self.final_actvn = final_actvn
+#         self.input_dim = input_dim
+#         self.use_rgb_skip = use_rgb_skip
+#         self.use_norm = use_norm
+#         n_blocks = int(log2(img_size) - 4)
+#
+#         assert (upsample_feat in ("near_neigh", "bilinear"))
+#         if upsample_feat == "near_neigh":
+#             self.upsample_2 = nn.Upsample(scale_factor=2.)
+#         elif upsample_feat == "bilinear":
+#             self.upsample_2 = nn.Sequential(nn.Upsample(
+#                 scale_factor=2, mode='bilinear', align_corners=False), Blur())
+#
+#         assert (upsample_rgb in ("near_neigh", "bilinear"))
+#         if upsample_rgb == "near_neigh":
+#             self.upsample_rgb = nn.Upsample(scale_factor=2.)
+#         elif upsample_rgb == "bilinear":
+#             self.upsample_rgb = nn.Sequential(nn.Upsample(
+#                 scale_factor=2, mode='bilinear', align_corners=False), Blur())
+#
+#         if n_feat == input_dim:
+#             self.conv_in = lambda x: x
+#         else:
+#             self.conv_in = nn.Conv2d(input_dim, n_feat, 1, 1, 0)
+#
+#         self.conv_layers = nn.ModuleList(
+#             [nn.Conv2d(n_feat, n_feat // 2, 3, 1, 1)] +
+#             [nn.Conv2d(max(n_feat // (2 ** (i + 1)), min_feat),
+#                        max(n_feat // (2 ** (i + 2)), min_feat), 3, 1, 1)
+#              for i in range(0, n_blocks - 1)]
+#         )
+#         if use_rgb_skip:
+#             self.conv_rgb = nn.ModuleList(
+#                 [nn.Conv2d(input_dim, out_dim, 3, 1, 1)] +
+#                 [nn.Conv2d(max(n_feat // (2 ** (i + 1)), min_feat),
+#                            out_dim, 3, 1, 1) for i in range(0, n_blocks)]
+#             )
+#         else:
+#             self.conv_rgb = nn.Conv2d(
+#                 max(n_feat // (2 ** (n_blocks)), min_feat), 3, 1, 1)
+#
+#         if use_norm:
+#             self.norms = nn.ModuleList([
+#                 nn.InstanceNorm2d(max(n_feat // (2 ** (i + 1)), min_feat))
+#                 for i in range(n_blocks)
+#             ])
+#         self.actvn = nn.LeakyReLU(0.2, inplace=True)
+#
+#     def forward(self, x):
+#
+#         net = self.conv_in(x)
+#
+#         if self.use_rgb_skip:
+#             rgb = self.upsample_rgb(self.conv_rgb[0](x))
+#
+#         for idx, layer in enumerate(self.conv_layers):
+#             hid = layer(self.upsample_2(net))
+#             if self.use_norm:
+#                 hid = self.norms[idx](hid)
+#             net = self.actvn(hid)
+#
+#             if self.use_rgb_skip:
+#                 rgb = rgb + self.conv_rgb[idx + 1](net)
+#                 if idx < len(self.conv_layers) - 1:
+#                     rgb = self.upsample_rgb(rgb)
+#
+#         if not self.use_rgb_skip:
+#             rgb = self.conv_rgb(net)
+#
+#         if self.final_actvn:
+#             rgb = torch.sigmoid(rgb)
+#         return rgb
+#
+#
+# class Blur(nn.Module):
+#     def __init__(self):
+#         super().__init__()
+#         f = torch.Tensor([1, 2, 1])
+#         self.register_buffer('f', f)
+#
+#     def forward(self, x):
+#         f = self.f
+#         f = f[None, None, :] * f[None, :, None]
+#         return filter2D(x, f, normalized=True)
