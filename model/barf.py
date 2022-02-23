@@ -155,7 +155,7 @@ class Model(nerf.Model):
             optim_pose.zero_grad()
             var.pose_refine_test = camera.lie.se3_to_SE3(var.se3_refine_test)
             var = self.graph.forward(opt,var,mode="test-optim")
-            loss = self.graph.compute_loss(opt,var,mode="test-optim")
+            loss = self.graph.compute_loss(opt, var, )
             loss = self.summarize_loss(opt,var,loss)
             loss.all.backward()
             optim_pose.step()

@@ -1,5 +1,7 @@
 _parent_: options/scannerf_blender.yaml
 
+project: scannerf-v1
+
 batch_size: 1                                               # batch size (not used for NeRF/BARF)
 max_epoch:                                                  # train to maximum number of epochs (not used for NeRF/BARF)
 max_iter: 200000                                            # train to maximum number of iterations

@@ -215,6 +215,13 @@ def world2cam(X, pose):  # [B,N,3]
     X_hom = to_hom(X)
     return X_hom @ pose.transpose(-1, -2)
 
+def world2cam_rays(rays, pose):
+    """
+    :param rays: (B, num_rays, 3)
+    :param pose: (B, 3, 4)
+    :return: (B, num_rays, 3')
+    """
+    return rays @ pose[..., :3].transpose(-1, -2)
 
 def cam2img(X, cam_intr):
     return X @ cam_intr.transpose(-1, -2)

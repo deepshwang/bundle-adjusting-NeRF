@@ -16,11 +16,6 @@ optim:                                                      # optimization optio
     test_photo: true                                        # test-time photometric optimization for evaluation
     test_iter: 100                                          # number of iterations for test-time optimization
 
-    lr_renderer: 1.e-3
-    lr_renderer_end: 1.e-5
-    sched_renderer:
-        type: ExponentialLR
-        gamma:
 
     lr_latent: 1.e-3
     lr_latent_end: 1.e-5

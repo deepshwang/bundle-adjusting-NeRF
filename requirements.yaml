@@ -1,4 +1,3 @@
-name: barf-env
 channels:
   - conda-forge
 dependencies:

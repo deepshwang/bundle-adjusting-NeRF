@@ -27,6 +27,7 @@ class Model(nerf.Model):
     def __init__(self, opt):
         super().__init__(opt)
 
+
     def build_networks(self, opt):
         super().build_networks(opt)  # Initialize -> self.graph = model.{opt.model}.Graph()
         self.graph.se3_refine = torch.nn.Embedding(len(self.train_data), 6).to(opt.device)
@@ -42,7 +43,7 @@ class Model(nerf.Model):
         # NeRF network optimizers
         log.info("setting up optimizers...")
         optimizer = getattr(torch.optim, opt.optim.algo)
-        self.optim = optimizer([dict(params=self.graph.se3_refine.parameters(), lr=opt.optim.lr_renderer)])
+        self.optim = optimizer([dict(params=self.graph.scannerf.parameters(), lr=opt.optim.lr)])
         # set up scheduler
         if opt.optim.sched:
             scheduler = getattr(torch.optim.lr_scheduler, opt.optim.sched.type)
@@ -51,18 +52,6 @@ class Model(nerf.Model):
                 opt.optim.sched.gamma = (opt.optim.lr_end / opt.optim.lr) ** (1. / opt.max_iter)
             kwargs = {k: v for k, v in opt.optim.sched.items() if k != "type"}
             self.sched = scheduler(self.optim, **kwargs)
-
-        # # Neural renderer optimizers
-        # optimizer = getattr(torch.optim, opt.optim.algo)
-        # self.optim_renderer = optimizer([dict(params=self.graph.se3_refine.parameters(), lr=opt.optim.lr_pose)])
-        # # set up scheduler
-        # if opt.optim.sched_pose:
-        #     scheduler = getattr(torch.optim.lr_scheduler, opt.optim.sched_pose.type)
-        #     if opt.optim.lr_pose_end:
-        #         assert (opt.optim.sched_pose.type == "ExponentialLR")
-        #         opt.optim.sched_pose.gamma = (opt.optim.lr_pose_end / opt.optim.lr_pose) ** (1. / opt.max_iter)
-        #     kwargs = {k: v for k, v in opt.optim.sched_pose.items() if k != "type"}
-        #     self.sched_pose = scheduler(self.optim_renderer, **kwargs)
 
         # Pose optimizers
         optimizer = getattr(torch.optim, opt.optim.algo)
@@ -79,6 +68,7 @@ class Model(nerf.Model):
         # Latent code optimizers
         optimizer = getattr(torch.optim, opt.optim.algo)
         self.optim_latent = optimizer([dict(params=self.graph.latent.parameters(), lr=opt.optim.lr_latent)])
+        # set up scheduler
         if opt.optim.sched_latent:
             scheduler = getattr(torch.optim.lr_scheduler, opt.optim.sched_latent.type)
             if opt.optim.lr_latent_end:
@@ -87,22 +77,41 @@ class Model(nerf.Model):
             kwargs = {k: v for k, v in opt.optim.sched_latent.items() if k != "type"}
             self.sched_latent = scheduler(self.optim_latent, **kwargs)
 
+
     # WORKING
     def train_iteration(self, opt, var, loader):
+        #zero-grad optimizers
+        self.optim.zero_grad()
         self.optim_pose.zero_grad()
+        self.optim_latent.zero_grad()
+
+        # Warm-ups if necessary
         if opt.optim.warmup_pose:
             # simple linear warmup of pose learning rate
             self.optim_pose.param_groups[0]["lr_orig"] = self.optim_pose.param_groups[0][
                 "lr"]  # cache the original learning rate
             self.optim_pose.param_groups[0]["lr"] *= min(1, self.it / opt.optim.warmup_pose)
-        loss = super().train_iteration(opt, var, loader)
+
+        # Forward network & calculate loss g
+        loss = super().train_iteration(opt, var, loader) # base.Graph.train_iteration
+
+        # Proceed pose optimizer schedules
         self.optim_pose.step()
         if opt.optim.warmup_pose:
             self.optim_pose.param_groups[0]["lr"] = self.optim_pose.param_groups[0]["lr_orig"]  # reset learning rate
-        if opt.optim.sched_pose: self.sched_pose.step()
-        self.graph.nerf.progress.data.fill_(self.it / opt.max_iter)
-        if opt.nerf.fine_sampling:
-            self.graph.nerf_fine.progress.data.fill_(self.it / opt.max_iter)
+        if opt.optim.sched_pose:
+            self.sched_pose.step()
+
+        # Proceed latent optimizer schedules
+        self.optim_latent.step()
+        if opt.optim.sched_pose:
+            self.sched_latent.step()
+
+        # Track positional encoding annealing parameter (BARF)
+        for i in range(self.graph.N_obj):
+            self.graph.scannerf[2*(i+1)].progress.data.fill_(self.it / opt.max_iter)
+            if opt.nerf.fine_sampling:
+                self.graph.scannerf[2*(i+1)+1].progress.data.fill_(self.it / opt.max_iter)
         return loss
 
     @torch.no_grad()
@@ -202,7 +211,7 @@ class Model(nerf.Model):
             optim_pose.zero_grad()
             var.pose_refine_test = camera.lie.se3_to_SE3(var.se3_refine_test)
             var = self.graph.forward(opt, var, mode="test-optim")
-            loss = self.graph.compute_loss(opt, var, mode="test-optim")
+            loss = self.graph.compute_loss(opt, var, )
             loss = self.summarize_loss(opt, var, loss)
             loss.all.backward()
             optim_pose.step()
@@ -264,20 +273,20 @@ class Graph(base.Graph):
         # self.renderer = NeuralRenderer()
         self.latent = torch.nn.Embedding(self.N_obj, opt.arch.dim_latent).to(opt.device)
 
-
     def forward(self, opt, var, mode=None):
         # var: dataloader output, easydict type
         batch_size = opt.batch_size
-        pose = self.get_pose(opt, var, mode=mode)
+        # sample random rays for optimization
+        var.ray_idx = torch.randperm(opt.H * opt.W, device=opt.device)[:opt.nerf.rand_rays // batch_size]
+
+        pose = self.get_object_pose(opt, var, mode=mode)
         # render images
-        if opt.nerf.rand_rays and mode in ["train","test-optim"]:
-            # sample random rays for optimization
-            var.ray_idx = torch.randperm(opt.H * opt.W, device=opt.device)[:opt.nerf.rand_rays//batch_size]
-            ret = self.render(opt, pose, self.latent, intr=var.intr, ray_idx=var.ray_idx, mode=mode) # [B,N,3],[B,N,1]
+        if opt.nerf.rand_rays and mode in ["train", "test-optim"]:
+            ret = self.render(opt, pose, self.latent, intr=var.intr, ray_idx=var.ray_idx, mode=mode)  # [B,N,3],[B,N,1]
         else:
-            # render full image (process in slices)
-            ret = self.render_by_slices(opt, pose, self.latent, intr=var.intr,mode=mode) if opt.nerf.rand_rays else \
-                  self.render(opt, pose, self.latent, intr=var.intr, mode=mode) # [B,HW,3],[B,HW,1]
+            # render full image (process in slices / validations)
+            ret = self.render_by_slices(opt, pose, self.latent, intr=var.intr, mode=mode) if opt.nerf.rand_rays else \
+                self.render(opt, pose, self.latent, intr=var.intr, mode=mode)  # [B,HW,3],[B,HW,1]
         var.update(ret)
         return var
 
@@ -305,14 +314,15 @@ class Graph(base.Graph):
         for i in range(self.N_obj + 1):
             # Background object: normal NeRF rendering
             if i == 0:
-                rgb_samples, density_samples = self.scannerf[2*i].forward_samples(opt, center, ray, depth_samples,
-                                                                                mode=mode)
+                rgb_samples, density_samples = self.scannerf[2 * i].forward_samples(opt, center, ray, depth_samples,
+                                                                                    mode=mode)
 
             # Foreground objects: bundle adjusting pose and conditional nerf
             else:
-                latent = self.latent.weight[i-1]
-                rgb_samples, density_samples = self.scannerf[2*i].forward_samples(opt, center, ray,
-                                                                                depth_samples, latent, pose, mode=mode)
+                latent = self.latent.weight[i - 1]
+                rgb_samples, density_samples = self.scannerf[2 * i].forward_samples(opt, center, ray,
+                                                                                    depth_samples, latent, pose,
+                                                                                    mode=mode)
 
             composite_rgb_samples += rgb_samples / (self.N_obj + 1)
             composite_density_samples += density_samples / (self.N_obj + 1)
@@ -321,18 +331,20 @@ class Graph(base.Graph):
             if opt.nerf.fine_sampling:
                 with torch.no_grad():
                     # resample depth acoording to coarse empirical distribution
-                    depth_samples_fine = self.sample_depth_from_pdf(opt, pdf=prob[..., 0])  # [B,HW,Nf,1]
-                    depth_samples = torch.cat([depth_samples, depth_samples_fine], dim=2)  # [B,HW,N+Nf,1]
-                    depth_samples = depth_samples.sort(dim=2).values
+                    depth_samples_fine = self.sample_depth_from_pdf(opt, batch_size, pdf=prob[..., 0])  # [B,HW,Nf,1]
+                    depth_samples_fine = torch.cat([depth_samples.expand([depth_samples_fine.shape[0], -1, -1, -1]),
+                                               depth_samples_fine], dim=2)  # [B,HW,N+Nf,1]
+                    depth_samples_fine = depth_samples_fine.sort(dim=2).values
                     if i == 0:
-                        rgb_samples, density_samples = self.scannerf[2*i + 1].forward_samples(opt, center, ray,
-                                                                                            depth_samples,
-                                                                                            mode=mode)
+                        rgb_samples, density_samples = self.scannerf[2 * i + 1].forward_samples(opt, center, ray,
+                                                                                                depth_samples_fine,
+                                                                                                mode=mode)
                     # Foreground objects: bundle adjusting pose and conditional nerf
                     else:
-                        rgb_samples, density_samples = self.scannerf[2*i + 1].forward_samples(opt, center, ray,
-                                                                                            depth_samples, latent, pose,
-                                                                                            mode=mode)
+                        rgb_samples, density_samples = self.scannerf[2 * i + 1].forward_samples(opt, center, ray,
+                                                                                                depth_samples_fine, latent,
+                                                                                                pose,
+                                                                                                mode=mode)
                     composite_rgb_samples_fine += rgb_samples / (self.N_obj + 1)
                     composite_density_samples_fine += density_samples / (self.N_obj + 1)
 
@@ -340,25 +352,23 @@ class Graph(base.Graph):
                                                    depth_samples)
         rgb_fine, depth_fine, opacity_fine, prob_fine = self.composite(opt, ray, composite_rgb_samples_fine,
                                                                        composite_density_samples_fine,
-                                                                       depth_samples)
+                                                                       depth_samples_fine)
 
         return edict(rgb=rgb, depth=depth, opacity=opacity,
                      rgb_fine=rgb_fine, depth_fine=depth_fine, opacity_fine=opacity_fine)  # [B,HW,K]
-
 
     def render_by_slices(self, opt, pose, latent, intr=None, mode=None):
         ret_all = edict(rgb=[], depth=[], opacity=[])
         if opt.nerf.fine_sampling:
             ret_all.update(rgb_fine=[], depth_fine=[], opacity_fine=[])
         # render the image by slices for memory considerations
-        for c in range(0,opt. H*opt.W, opt.nerf.rand_rays):
-            ray_idx = torch.arange(c, min(c+opt.nerf.rand_rays, opt.H*opt.W), device=opt.device)
-            ret = self.render(opt, pose, latent, intr=intr, ray_idx=ray_idx, mode=mode) # [B,R,3],[B,R,1]
+        for c in range(0, opt.H * opt.W, opt.nerf.rand_rays):
+            ray_idx = torch.arange(c, min(c + opt.nerf.rand_rays, opt.H * opt.W), device=opt.device)
+            ret = self.render(opt, pose, latent, intr=intr, ray_idx=ray_idx, mode=mode)  # [B,R,3],[B,R,1]
             for k in ret: ret_all[k].append(ret[k])
         # group all slices of images
-        for k in ret_all: ret_all[k] = torch.cat(ret_all[k],dim=1)
+        for k in ret_all: ret_all[k] = torch.cat(ret_all[k], dim=1)
         return ret_all
-
 
     def sample_depth(self, opt, batch_size, num_rays=None):
         depth_min, depth_max = opt.nerf.depth.range
@@ -374,8 +384,7 @@ class Graph(base.Graph):
         )[opt.nerf.depth.param]
         return depth_samples
 
-
-    def sample_depth_from_pdf(self, opt, pdf):
+    def sample_depth_from_pdf(self, opt, batch_size, pdf):
         depth_min, depth_max = opt.nerf.depth.range
         # get CDF from PDF (along last dimension)
         cdf = pdf.cumsum(dim=-1)  # [B,HW,N]
@@ -396,8 +405,8 @@ class Graph(base.Graph):
         depth_samples = depth_low + t * (depth_high - depth_low)  # [B,HW,Nf]
         return depth_samples[..., None]  # [B,HW,Nf,1]
 
-    def get_pose(self, opt, var, mode=None):
-        if mode in ["train", 'val']:
+    def get_object_pose(self, opt, var, mode=None):
+        if mode in ["train", "val"]:
             # add learnable pose correction
             var.se3_refine = self.se3_refine.weight[var.idx]
             # 0th frames' object pose is initialized as fixed hyperparameter
@@ -418,7 +427,6 @@ class Graph(base.Graph):
         else:
             pose = var.pose
         return pose
-
 
     def composite(self, opt, ray, rgb_samples, density_samples, depth_samples, prob_only=False):
         ray_length = ray.norm(dim=-1, keepdim=True)  # [B,HW,1]
@@ -442,6 +450,20 @@ class Graph(base.Graph):
             rgb = rgb + opt.data.bgcolor * (1 - opacity)
         return rgb, depth, opacity, prob  # [B,HW,K]
 
+    def compute_loss(self, opt, var, mode=None):
+        loss = edict()
+        batch_size = len(var.idx)
+        image = var.image.view(batch_size, 3, opt.H*opt.W).permute(0, 2, 1)
+        if opt.nerf.rand_rays and mode in ["train", "test-optim"]:
+            image = image[:, var.ray_idx]
+        # compute image losses
+        if opt.loss_weight.render is not None:
+            loss.render = self.MSE_loss(var.rgb, image)
+        if opt.loss_weight.render_fine is not None:
+            assert opt.nerf.fine_sampling
+            loss.render_fine = self.MSE_loss(var.rgb_fine, image)
+        return loss
+
 
 class CondNeRF(torch.nn.Module):
     """
@@ -450,12 +472,13 @@ class CondNeRF(torch.nn.Module):
 
     def __init__(self, opt):
         super().__init__()
+        self.define_network(opt)
         self.progress = torch.nn.Parameter(torch.tensor(0.))  # use Parameter so it could be checkpointed (BARF)
 
     def define_network(self, opt):
         input_3D_dim = 3 + opt.arch.dim_latent + 6 * opt.arch.posenc.L_3D if opt.arch.posenc \
             else 3 + opt.arch.dim_latent
-        input_view_dim = 3 + 3 * opt.arch.posenc.L_pose + 6 * opt.arch.posenc.L_view
+        input_view_dim = 3 + 6 * opt.arch.posenc.L_view
 
         # point-wise feature
         self.mlp_feat = torch.nn.ModuleList()
@@ -535,19 +558,19 @@ class CondNeRF(torch.nn.Module):
         # 3D points in inhomogeneous coordinate
         points_3D_samples = camera.get_3D_points_from_depth(opt, center, ray, depth_samples,
                                                             multi_samples=True)  # [B, n_rays, n_samples, 3]
-        # 3D points in homogeneous coordinate
-        points_3D_samples = camera.to_hom(points_3D_samples)
+
         # [B, n_rays, n_samples, 4]
         # Rigid transformation of points with learned pose
-        points_3D_samples = camera.world2cam(points_3D_samples, pose)
+        points_3D_samples = camera.world2cam(points_3D_samples, pose[:, None, ...])
 
-        latent = latent[None, None, None, :].expand_as(points_3D_samples)
+        latent = latent[None, None, None, :].expand(points_3D_samples.shape[0], points_3D_samples.shape[1],
+                                                    points_3D_samples.shape[2], -1)
 
         if opt.nerf.view_dep:
             ray_unit = torch_F.normalize(ray, dim=-1)  # [B,HW,3]
-            ray_unit_samples = ray_unit[..., None, :].expand_as(points_3D_samples)  # [B, n_rays, n_samples, 3]
-            # Rigid transformation of rays with learned pose
-            ray_unit_samples = torch.matmul(pose[:, None, :, :-1], ray_unit_samples)
+
+            # Rigid so(2)-transformation of rays with learned pose
+            ray_unit_samples = camera.world2cam_rays(ray_unit, pose)[..., None, :].expand_as(points_3D_samples)
         else:
             ray_unit_samples = None
 
@@ -556,7 +579,13 @@ class CondNeRF(torch.nn.Module):
         return rgb_samples, density_samples
 
     def positional_encoding(self, opt, input, L):  # [B,...,N] (BARF-style)
-        input_enc = super().positional_encoding(opt, input, L=L)  # [B,...,2NL]
+        shape = input.shape
+        freq = 2 ** torch.arange(L, dtype=torch.float32, device=opt.device) * np.pi  # [L]
+        spectrum = input[..., None] * freq  # [B,...,N,L]
+        sin, cos = spectrum.sin(), spectrum.cos()  # [B,...,N,L]
+        input_enc = torch.stack([sin, cos], dim=-2)  # [B,...,N,2,L]
+        input_enc = input_enc.view(*shape[:-1], -1)  # [B,...,2NL]
+
         # coarse-to-fine: smoothly mask positional encoding for BARF
         if opt.barf_c2f is not None:
             # set weights for different frequency bands
@@ -568,7 +597,6 @@ class CondNeRF(torch.nn.Module):
             shape = input_enc.shape
             input_enc = (input_enc.view(-1, L) * weight).view(*shape)
         return input_enc
-
 
 # class NeuralRenderer(nn.Module):
 #     ''' Neural renderer class

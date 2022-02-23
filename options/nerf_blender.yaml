@@ -8,7 +8,7 @@ arch:                                                       # architectural opti
         L_3D: 10                                            # number of bases (3D point)
         L_view: 4                                           # number of bases (viewpoint)
         L_pose:
-    density_activ: softplus                                 # activation function for output volume density
+    density_activ: relu                                     # activation function for output volume density
     tf_init: true                                           # initialize network weights in TensorFlow style
     dim_latent:                                             # latent code dimension (DynaNeRF)
 
@@ -19,9 +19,9 @@ nerf:                                                       # NeRF-specific opti
         range: [2,6]                                        # near/far bounds for depth sampling
     sample_intvs: 128                                       # number of samples
     sample_stratified: true                                 # stratified sampling
-    fine_sampling: false                                    # hierarchical sampling with another NeRF
-    sample_intvs_fine:                                      # number of samples for the fine NeRF
-    rand_rays: 1024                                         # number of random rays for each step
+    fine_sampling: true                                    # hierarchical sampling with another NeRF
+    sample_intvs_fine: 64                                     # number of samples for the fine NeRF
+    rand_rays: 2                                          # number of random rays for each step
     density_noise_reg:                                      # Gaussian noise on density output as regularization
     setbg_opaque: false                                     # fill transparent rendering with known background color (Blender only)
 
@@ -41,7 +41,7 @@ camera:                                                     # camera options
 
 loss_weight:                                                # loss weights (in log scale)
     render: 0                                               # RGB rendering loss
-    render_fine:                                            # RGB rendering loss (for fine NeRF)
+    render_fine: 0                                          # RGB rendering loss (for fine NeRF)
 
 optim:                                                      # optimization options
     lr: 5.e-4                                               # learning rate (main)

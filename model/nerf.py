@@ -54,10 +54,12 @@ class Model(base.Model):
         if self.iter_start==0: self.validate(opt, 0)
         loader = tqdm.trange(opt.max_iter,desc="training",leave=False)
         for self.it in loader:
-            if self.it<self.iter_start: continue
-            # set var to all available images
+            if self.it < self.iter_start:
+                continue
+
+            # set var to all available images (NOTE: For stricter control of annealing schedule...?)
             var = self.train_data.all
-            self.train_iteration(opt,var,loader, mode='train')
+            self.train_iteration(opt, var, loader)
             if opt.optim.sched: self.sched.step()
             if self.it%opt.freq.val==0: self.validate(opt,self.it)
             if self.it%opt.freq.ckpt==0: self.save_checkpoint(opt,ep=None,it=self.it)
@@ -86,7 +88,7 @@ class Model(base.Model):
             self.tb.add_scalar("{0}/{1}".format(split,"PSNR_fine"),psnr,step)
 
     @torch.no_grad()
-    def visualize(self,opt,var,step=0,split="train",eps=1e-10):
+    def visualize(self, opt, var, step=0, split="train", eps=1e-10):
         if opt.tb:
             util_vis.tb_image(opt,self.tb,step,split,"image",var.image)
             if not opt.nerf.rand_rays or split!="train":
@@ -365,7 +367,7 @@ class NeRF(torch.nn.Module):
                 density_activ = getattr(torch_F,opt.arch.density_activ) # relu_,abs_,sigmoid_,exp_....
                 density = density_activ(density)
                 feat = feat[...,1:]
-            feat = torch_F.relu(feat)
+            feat = torch_F.relu(feat, inplace=True)
         # predict RGB values
         if opt.nerf.view_dep:
             assert(ray_unit is not None)
@@ -377,7 +379,7 @@ class NeRF(torch.nn.Module):
         for li,layer in enumerate(self.mlp_rgb):
             feat = layer(feat)
             if li!=len(self.mlp_rgb)-1:
-                feat = torch_F.relu(feat)
+                feat = torch_F.relu(feat, inplace=True)
         rgb = feat.sigmoid_() # [B,...,3]
         return rgb, density
 
@@ -387,7 +389,7 @@ class NeRF(torch.nn.Module):
             ray_unit = torch_F.normalize(ray,dim=-1) # [B,HW,3]
             ray_unit_samples = ray_unit[...,None,:].expand_as(points_3D_samples) # [B,HW,N,3]
         else: ray_unit_samples = None
-        rgb_samples,density_samples = self.forward(opt,points_3D_samples,ray_unit=ray_unit_samples,mode=mode) # [B,HW,N],[B,HW,N,3]
+        rgb_samples, density_samples = self.forward(opt, points_3D_samples, ray_unit=ray_unit_samples, mode=mode) # [B,HW,N],[B,HW,N,3]
         return rgb_samples,density_samples
 
     def composite(self, opt, ray, rgb_samples, density_samples, depth_samples):
