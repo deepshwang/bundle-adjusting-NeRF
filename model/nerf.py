@@ -232,11 +232,14 @@ class Graph(base.Graph):
     def get_pose(self,opt,var,mode=None):
         return var.pose
 
-    def render(self, opt, pose, intr=None, ray_idx=None, mode=None):
-        batch_size = len(pose)
-        center, ray = camera.get_center_and_ray(opt, pose, intr=intr) # [B,HW,3]
+    def render(self, opt, pose, sample_image_idx=None, intr=None, ray_idx=None, mode=None):
+        if sample_image_idx is None:
+            batch_size = len(pose)
+        else:
+            len(sample_image_idx)
+        center, ray = camera.get_center_and_ray(opt, pose, intr=intr, sample_image_idx=sample_image_idx) # [B,HW,3]
         while ray.isnan().any(): # TODO: weird bug, ray becomes NaN arbitrarily if batch_size>1, not deterministic reproducible
-            center, ray = camera.get_center_and_ray(opt, pose, intr=intr) # [B,HW,3]
+            center, ray = camera.get_center_and_ray(opt, pose, intr=intr, sample_image_idx=sample_image_idx) # [B,HW,3]
         if ray_idx is not None:
             # consider only subset of rays
             center, ray = center[:,ray_idx], ray[:,ray_idx]
@@ -260,7 +263,7 @@ class Graph(base.Graph):
             ret.update(rgb_fine=rgb_fine,depth_fine=depth_fine,opacity_fine=opacity_fine) # [B,HW,K]
         return ret
 
-    def render_by_slices(self, opt, pose, intr=None, mode=None):
+    def render_by_slices(self, opt, pose, sample_image_idx=None, intr=None, mode=None):
         ret_all = edict(rgb=[], depth=[], opacity=[])
         if opt.nerf.fine_sampling:
             ret_all.update(rgb_fine=[], depth_fine=[], opacity_fine=[])

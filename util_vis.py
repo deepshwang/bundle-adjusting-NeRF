@@ -9,7 +9,6 @@ from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import PIL
 import imageio
 from easydict import EasyDict as edict
-import wandb
 import torchvision.transforms as T
 import camera
 
@@ -265,17 +264,3 @@ def setup_3D_plot(ax,elev,azim,lim=None):
     ax.set_ylim(lim.y[0],lim.y[1])
     ax.set_zlim(lim.z[0],lim.z[1])
     ax.view_init(elev=elev,azim=azim)
-
-class Wandb:
-    def __init__(self): pass
-
-    def logImage(self, rgb, opt, title="" , num_samples=20):
-        """
-        :param rgb: (B, 3, opt.H*opt.W)
-        :return: None
-        """
-        if rgb.shape[0] > num_samples:
-            rgb = rgb[:num_samples, ...]
-        rgb = torch.reshape(rgb, (-1, 3, opt.H, opt.W))
-        wandb.log({title: [T.ToPILImage(img) for img in rgb]})
-

@@ -1,0 +1,31 @@
+{
+    "os": "Linux-5.13.0-28-generic-x86_64-with-debian-bullseye-sid",
+    "python": "3.7.11",
+    "heartbeatAt": "2022-02-24T09:12:44.794877",
+    "startedAt": "2022-02-24T09:12:43.208922",
+    "docker": null,
+    "gpu": "NVIDIA GeForce RTX 3090",
+    "gpu_count": 1,
+    "cpu_count": 16,
+    "cuda": null,
+    "args": [
+        "--group=calendar",
+        "--model=scannerf",
+        "--yaml=scannerf_calendar",
+        "--name=calendar",
+        "--data.scene=calendar",
+        "--barf_c2f=[0.1,0.5]"
+    ],
+    "state": "running",
+    "program": "/opt/project/train.py",
+    "codePath": "train.py",
+    "git": {
+        "remote": "https://github.com/deepshwang/bundle-adjusting-NeRF.git",
+        "commit": "954fb9f0d3be4b48ea4e1e209d5b1494e6885107"
+    },
+    "email": null,
+    "root": "/opt/project",
+    "host": "7f62cc5f4b2e",
+    "username": "root",
+    "executable": "/root/anaconda3/envs/barf-env/bin/python"
+}

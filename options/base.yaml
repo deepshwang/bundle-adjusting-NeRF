@@ -53,7 +53,7 @@ visdom:                                                     # Visdom options
     port: 9000                                              # port number for Visdom
 
 freq:                                                       # periodic actions during training
-    scalar: 200                                             # log losses and scalar states (every N iterations)
+    scalar: 2                                              # log losses and scalar states (every N iterations)
     vis: 1000                                               # visualize results (every N iterations)
     val: 20                                                 # validate on val set (every N epochs)
     ckpt: 50                                                # save checkpoint (every N epochs)

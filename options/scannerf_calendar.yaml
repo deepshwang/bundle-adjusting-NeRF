@@ -1,5 +1,6 @@
 _parent_: options/scannerf_blender.yaml
 
+wandb: true
 project: scannerf-v1
 
 batch_size: 1                                               # batch size (not used for NeRF/BARF)

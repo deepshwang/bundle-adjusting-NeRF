@@ -213,7 +213,10 @@ def to_hom(X):
 # basic operations of transforming 3D points between world/camera/image coordinates
 def world2cam(X, pose):  # [B,N,3]
     X_hom = to_hom(X)
-    return X_hom @ pose.transpose(-1, -2)
+    try:
+        return X_hom @ pose.transpose(-1, -2)
+    except:
+        print("debug")
 
 def world2cam_rays(rays, pose):
     """
@@ -228,7 +231,10 @@ def cam2img(X, cam_intr):
 
 
 def img2cam(X, cam_intr):
-    return X @ cam_intr.inverse().transpose(-1, -2)
+    try:
+        return X @ cam_intr.inverse().transpose(-1, -2)
+    except:
+        print("debug")
 
 
 def cam2world(X, pose):
@@ -249,7 +255,7 @@ def angle_to_rotation_matrix(a, axis):
     return M
 
 
-def get_center_and_ray(opt, pose, intr=None):  # [HW,2]
+def get_center_and_ray(opt, pose, intr=None, sample_image_idx=None):  # [HW,2]
     # given the intrinsic/extrinsic matrices, get the camera center and ray directions]
     assert (opt.camera.model == "perspective")
     with torch.no_grad():
@@ -259,7 +265,11 @@ def get_center_and_ray(opt, pose, intr=None):  # [HW,2]
         Y, X = torch.meshgrid(y_range, x_range)  # [H,W]
         xy_grid = torch.stack([X, Y], dim=-1).view(-1, 2)  # [HW,2]
     # compute center and ray
-    batch_size = len(pose)
+    if sample_image_idx is None:
+        batch_size = pose.shape[0]
+    else:
+        batch_size=len(sample_image_idx)
+        pose = pose[sample_image_idx]
     xy_grid = xy_grid.repeat(batch_size, 1, 1)  # [B,HW,2]
     grid_3D = img2cam(to_hom(xy_grid), intr)  # [B,HW,3]
     center_3D = torch.zeros_like(grid_3D)  # [B,HW,3]
@@ -273,7 +283,10 @@ def get_center_and_ray(opt, pose, intr=None):  # [HW,2]
 def get_3D_points_from_depth(opt, center, ray, depth, multi_samples=False):
     if multi_samples: center, ray = center[:, :, None], ray[:, :, None]
     # x = c+dv
-    points_3D = center + ray * depth  # [B,HW,3]/[B,HW,N,3]/[N,3]
+    try:
+        points_3D = center + ray * depth  # [B,HW,3]/[B,HW,N,3]/[N,3]
+    except:
+        print("debug")
     return points_3D
 
 

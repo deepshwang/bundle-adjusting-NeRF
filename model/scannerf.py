@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as torch_F
 import torch.nn as nn
 import torchvision
+import torchvision.transforms as T
 import torchvision.transforms.functional as torchvision_F
 import tqdm
 from easydict import EasyDict as edict
@@ -11,6 +12,8 @@ import visdom
 import matplotlib.pyplot as plt
 from math import log2
 from kornia.filters import filter2D
+import importlib
+import wandb
 
 import util, util_vis
 from util import log, debug
@@ -22,16 +25,59 @@ import itertools
 
 # ============================ main engine for training and evaluation ============================
 
-class Model(nerf.Model):
+class Model():
 
     def __init__(self, opt):
-        super().__init__(opt)
+        self.ep = None
+        self.timer = None
+        self.sched_latent = None
+        self.optim_latent = None
+        self.sched_pose = None
+        self.optim_pose = None
+        self.sched = None
+        self.optim = None
+        self.it = None
+
+    def initialize_wandb(self, opt):
+        if opt.wandb:
+            wandb.login(key="c757da017bc82753ff5e2fd3261549dfd5b3cc8c")
+            wandb.init(project=opt.project)
+            wandb.define_metric("train/step")
+            wandb.define_metric("train/*", step_metric="train/step")
+            wandb.define_metric("val/*", step_metric="train/step")
 
 
     def build_networks(self, opt):
-        super().build_networks(opt)  # Initialize -> self.graph = model.{opt.model}.Graph()
+        graph = importlib.import_module("model.{}".format(opt.model))
+        log.info("building networks...")
+        self.graph = graph.Graph(opt).to(opt.device)
         self.graph.se3_refine = torch.nn.Embedding(len(self.train_data), 6).to(opt.device)
         torch.nn.init.zeros_(self.graph.se3_refine.weight)
+
+    def load_dataset(self, opt, eval_split="val"):
+        data = importlib.import_module("data.{}".format(opt.data.dataset))
+        log.info("loading training data...")
+        self.train_data = data.Dataset(opt, split="train", subset=opt.data.train_sub)
+        self.train_loader = self.train_data.setup_loader(opt, shuffle=True)
+        self.train_data.prefetch_all_data(opt)
+        self.train_data.all = edict(util.move_to_device(self.train_data.all,opt.device))
+        log.info("loading test data...")
+        if opt.data.val_on_test: eval_split = "test"
+        self.test_data = data.Dataset(opt, split=eval_split, subset=opt.data.val_sub)
+        self.test_loader = self.test_data.setup_loader(opt, shuffle=False)
+
+    def restore_checkpoint(self, opt):
+        epoch_start, iter_start = None, None
+        if opt.resume:
+            log.info("resuming from previous checkpoint...")
+            epoch_start, iter_start = util.restore_checkpoint(opt, self, resume=opt.resume)
+        elif opt.load is not None:
+            log.info("loading weights from checkpoint {}...".format(opt.load))
+            epoch_start, iter_start = util.restore_checkpoint(opt, self, load_name=opt.load)
+        else:
+            log.info("initializing weights from scratch...")
+        self.epoch_start = epoch_start or 0
+        self.iter_start = iter_start or 0
 
     def setup_optimizer(self, opt):
         """
@@ -77,10 +123,28 @@ class Model(nerf.Model):
             kwargs = {k: v for k, v in opt.optim.sched_latent.items() if k != "type"}
             self.sched_latent = scheduler(self.optim_latent, **kwargs)
 
+    def train(self, opt):
+        # before training
+        log.title("TRAINING START")
+        self.timer = edict(start=time.time(), it_mean=None)
+        self.graph.train()
+        self.ep = 0  # dummy for timer
+        # training
+        loader = tqdm.trange(opt.max_iter, desc="training", leave=False)
+        for self.it in loader:
+            if self.it < self.iter_start:
+                continue
+            # set var to all available images (NOTE: For stricter control of annealing schedule...?)
+            var = self.train_data.all
+            self.train_iteration(opt, var, loader)
+            if opt.optim.sched: self.sched.step()
+            if self.it % opt.freq.ckpt == 0:
+                self.save_checkpoint(opt, ep=None, it=self.it)
+        log.title("TRAINING DONE")
 
     # WORKING
     def train_iteration(self, opt, var, loader):
-        #zero-grad optimizers
+        # zero-grad optimizers
         self.optim.zero_grad()
         self.optim_pose.zero_grad()
         self.optim_latent.zero_grad()
@@ -93,7 +157,29 @@ class Model(nerf.Model):
             self.optim_pose.param_groups[0]["lr"] *= min(1, self.it / opt.optim.warmup_pose)
 
         # Forward network & calculate loss g
-        loss = super().train_iteration(opt, var, loader) # base.Graph.train_iteration
+        # before train iteration
+        self.timer.it_start = time.time()
+        var = self.graph.forward(opt, var, mode="train")
+        loss = self.graph.compute_loss(opt, var, mode="train")
+        loss = self.summarize_loss(opt, loss)
+        loss.all.backward()
+        # Record Scalars (loss / learning rate)
+        # if (self.it + 1) % opt.freq.scalar == 0 and opt.wandb:
+        if True:
+            self.log_scalars(opt, loss, key_list=["render", "render_fine", "all"], step=self.it + 1, split="train")
+
+        # Visualize current performance
+        # if (self.it + 1) % opt.freq.vis == 0 and opt.wandb:
+        if True:
+            self.visualize(opt, var, sample_image_idx=[1, 2, 3], step=self.it + 1)
+        loader.set_postfix(it=self.it, loss="{:.3f}".format(loss.all))
+        self.timer.it_end = time.time()
+        util.update_timer(opt, self.timer, self.ep, len(loader))
+
+        # Proceed main network optimizer schedules
+        self.optim.step()
+        if opt.optim.sched:
+            self.sched.step()
 
         # Proceed pose optimizer schedules
         self.optim_pose.step()
@@ -109,33 +195,66 @@ class Model(nerf.Model):
 
         # Track positional encoding annealing parameter (BARF)
         for i in range(self.graph.N_obj):
-            self.graph.scannerf[2*(i+1)].progress.data.fill_(self.it / opt.max_iter)
+            self.graph.scannerf[2 * (i + 1)].progress.data.fill_(self.it / opt.max_iter)
             if opt.nerf.fine_sampling:
-                self.graph.scannerf[2*(i+1)+1].progress.data.fill_(self.it / opt.max_iter)
+                self.graph.scannerf[2 * (i + 1) + 1].progress.data.fill_(self.it / opt.max_iter)
+
+        self.it += 1
         return loss
 
-    @torch.no_grad()
-    def log_scalars(self, opt, var, loss, metric=None, step=0, split="train"):
-        super().log_scalars(opt, var, loss, metric=metric, step=step, split=split)
-        if split == "train":
-            # log learning rate
-            lr = self.optim_pose.param_groups[0]["lr"]
-            self.tb.add_scalar("{0}/{1}".format(split, "lr_pose"), lr, step)
-        # compute pose error
-        if split == "train" and opt.data.dataset in ["blender", "llff"]:
-            pose, pose_GT = self.get_all_training_poses(opt)
-            pose_aligned, _ = self.prealign_cameras(opt, pose, pose_GT)
-            error = self.evaluate_camera_alignment(opt, pose_aligned, pose_GT)
-            self.tb.add_scalar("{0}/error_R".format(split), error.R.mean(), step)
-            self.tb.add_scalar("{0}/error_t".format(split), error.t.mean(), step)
+    def summarize_loss(self, opt, loss):
+        loss_all = 0.
+        assert ("all" not in loss)
+        # weigh losses
+        for key in loss:
+            assert (key in opt.loss_weight)
+            assert (loss[key].shape == ())
+            if opt.loss_weight[key] is not None:
+                assert not torch.isinf(loss[key]), "loss {} is Inf".format(key)
+                assert not torch.isnan(loss[key]), "loss {} is NaN".format(key)
+                loss_all += 10 ** float(opt.loss_weight[key]) * loss[key]
+        loss.update(all=loss_all)
+        return loss
+
+    def save_checkpoint(self, opt, it=0, latest=False):
+        util.save_checkpoint(opt, self, it=it, latest=latest)
+        if not latest:
+            log.info("checkpoint saved: ({0}) {1}, (iteration {2})".format(opt.group, opt.name, it))
 
     @torch.no_grad()
-    def visualize(self, opt, var, step=0, split="train"):
-        super().visualize(opt, var, step=step, split=split)
-        if opt.visdom:
-            if split == "val":
-                pose, pose_GT = self.get_all_training_poses(opt)
-                util_vis.vis_cameras(opt, self.vis, step=step, poses=[pose, pose_GT])
+    def log_scalars(self, opt, val, key_list=[], metric=None, step=0, split="train"):
+        log_dict={"{}/step".format(split): step}
+        for key, value in val.items():
+            if key in key_list:
+                log_dict["{}/{}".format(split, key)] = value.detach().cpu().numpy()
+        if metric is not None:
+            for key, value in metric.items():
+                log_dict["{}/{}".format(split, key)] = value
+
+        if split == "train":
+            # Log network learning rate
+            lr = self.optim.param_groups[0]["lr"]
+            log_dict["{}/{}".format(split, "lr")] = lr
+            # log pose learning rate
+            lr_pose = self.optim_pose.param_groups[0]["lr"]
+            log_dict["{}/{}".format(split, "lr_pose")] = lr_pose
+            # log latent learning rate
+            # lr_latent = self.optim_latent.param_groups[0]["lr_latent"]
+            # log_dict["{}/{}".format(split, "lr_latent")] = lr_latent
+        wandb.log(log_dict)
+
+
+    @torch.no_grad()
+    def visualize(self, opt, var, sample_image_idx=None, step=0, eps=1e-6):
+        self.graph.eval()
+        var = self.graph.forward(opt, var, sample_image_idx = sample_image_idx, mode="val") # Forward all images
+        invdepth = 1/(var.depth_fine/var.opacity_fine+eps)
+        rgb_map = var.rgb_fine.view(-1,opt.H,opt.W,3).permute(0,3,1,2) # [B,3,H,W]
+        # invdepth_map = invdepth.view(-1, opt.H, opt.W, 1).permute(0, 3, 1, 2)  # [B,1,H,W]
+        # T.ToPILImage()
+
+        wandb.log({"RGB Image": [wandb.Image(np.transpose(t.detach().cpu().numpy(), (1, 2, 0))) for t in rgb_map]})
+        # wandb.log({"Depth Image": [t.detach().cpu().numpy()  for t in invdepth_map]})
 
     @torch.no_grad()
     def get_all_training_poses(self, opt):
@@ -211,8 +330,8 @@ class Model(nerf.Model):
             optim_pose.zero_grad()
             var.pose_refine_test = camera.lie.se3_to_SE3(var.se3_refine_test)
             var = self.graph.forward(opt, var, mode="test-optim")
-            loss = self.graph.compute_loss(opt, var, )
-            loss = self.summarize_loss(opt, var, loss)
+            loss = self.graph.compute_loss(opt, var)
+            loss = self.summarize_loss(opt, loss)
             loss.all.backward()
             optim_pose.step()
             iterator.set_postfix(loss="{:.3f}".format(loss.all))
@@ -273,25 +392,28 @@ class Graph(base.Graph):
         # self.renderer = NeuralRenderer()
         self.latent = torch.nn.Embedding(self.N_obj, opt.arch.dim_latent).to(opt.device)
 
-    def forward(self, opt, var, mode=None):
-        # var: dataloader output, easydict type
-        batch_size = opt.batch_size
+    def forward(self, opt, var, sample_image_idx=None, mode=None):
         # sample random rays for optimization
-        var.ray_idx = torch.randperm(opt.H * opt.W, device=opt.device)[:opt.nerf.rand_rays // batch_size]
+        num_rand_rays = opt.nerf.rand_rays if mode == "train" else opt.nerf.val_rand_rays
+        var.ray_idx = torch.randperm(opt.H * opt.W, device=opt.device)[:num_rand_rays]
 
-        pose = self.get_object_pose(opt, var, mode=mode)
+        pose = self.get_object_pose(opt, var, sample_image_idx=sample_image_idx, mode=mode)
+        if mode == "val":
+            print("debugging!!!!!")
         # render images
         if opt.nerf.rand_rays and mode in ["train", "test-optim"]:
             ret = self.render(opt, pose, self.latent, intr=var.intr, ray_idx=var.ray_idx, mode=mode)  # [B,N,3],[B,N,1]
         else:
-            # render full image (process in slices / validations)
-            ret = self.render_by_slices(opt, pose, self.latent, intr=var.intr, mode=mode) if opt.nerf.rand_rays else \
-                self.render(opt, pose, self.latent, intr=var.intr, mode=mode)  # [B,HW,3],[B,HW,1]
+            # render full image (process in slices for validations)
+            ret = self.render_by_slices(opt, pose, self.latent, sample_image_idx=sample_image_idx, intr=var.intr, mode=mode)
         var.update(ret)
         return var
 
-    def render(self, opt, pose, latent, intr=None, ray_idx=None, mode=None):
-        batch_size = opt.batch_size
+    def render(self, opt, pose, latent, sample_image_idx=None, intr=None, ray_idx=None, mode=None):
+        if sample_image_idx is None:
+            batch_size = pose.shape[0]
+        else:
+            batch_size = len(sample_image_idx)
         center, ray = camera.get_center_and_ray(opt, self.world_pose.expand(batch_size, -1, -1), intr=intr)  # [B,HW,3]
         while ray.isnan().any():  # TODO: weird bug, ray becomes NaN arbitrarily if batch_size>1, not deterministic reproducible
             center, ray = camera.get_center_and_ray(opt, self.world_pose.expand(batch_size, -1, -1),
@@ -333,7 +455,7 @@ class Graph(base.Graph):
                     # resample depth acoording to coarse empirical distribution
                     depth_samples_fine = self.sample_depth_from_pdf(opt, batch_size, pdf=prob[..., 0])  # [B,HW,Nf,1]
                     depth_samples_fine = torch.cat([depth_samples.expand([depth_samples_fine.shape[0], -1, -1, -1]),
-                                               depth_samples_fine], dim=2)  # [B,HW,N+Nf,1]
+                                                    depth_samples_fine], dim=2)  # [B,HW,N+Nf,1]
                     depth_samples_fine = depth_samples_fine.sort(dim=2).values
                     if i == 0:
                         rgb_samples, density_samples = self.scannerf[2 * i + 1].forward_samples(opt, center, ray,
@@ -342,7 +464,8 @@ class Graph(base.Graph):
                     # Foreground objects: bundle adjusting pose and conditional nerf
                     else:
                         rgb_samples, density_samples = self.scannerf[2 * i + 1].forward_samples(opt, center, ray,
-                                                                                                depth_samples_fine, latent,
+                                                                                                depth_samples_fine,
+                                                                                                latent,
                                                                                                 pose,
                                                                                                 mode=mode)
                     composite_rgb_samples_fine += rgb_samples / (self.N_obj + 1)
@@ -357,14 +480,16 @@ class Graph(base.Graph):
         return edict(rgb=rgb, depth=depth, opacity=opacity,
                      rgb_fine=rgb_fine, depth_fine=depth_fine, opacity_fine=opacity_fine)  # [B,HW,K]
 
-    def render_by_slices(self, opt, pose, latent, intr=None, mode=None):
+    def render_by_slices(self, opt, pose, latent, sample_image_idx=None, intr=None, mode=None):
+        if sample_image_idx is not None:
+            intr = intr[sample_image_idx]
         ret_all = edict(rgb=[], depth=[], opacity=[])
         if opt.nerf.fine_sampling:
             ret_all.update(rgb_fine=[], depth_fine=[], opacity_fine=[])
         # render the image by slices for memory considerations
-        for c in range(0, opt.H * opt.W, opt.nerf.rand_rays):
-            ray_idx = torch.arange(c, min(c + opt.nerf.rand_rays, opt.H * opt.W), device=opt.device)
-            ret = self.render(opt, pose, latent, intr=intr, ray_idx=ray_idx, mode=mode)  # [B,R,3],[B,R,1]
+        for c in tqdm.tqdm(range(0, opt.H * opt.W, opt.nerf.val_rand_rays)):
+            ray_idx = torch.arange(c, min(c + opt.nerf.val_rand_rays, opt.H * opt.W), device=opt.device)
+            ret = self.render(opt, pose, latent, sample_image_idx=sample_image_idx, intr=intr, ray_idx=ray_idx, mode=mode)  # [B,R,3],[B,R,1]
             for k in ret: ret_all[k].append(ret[k])
         # group all slices of images
         for k in ret_all: ret_all[k] = torch.cat(ret_all[k], dim=1)
@@ -405,10 +530,13 @@ class Graph(base.Graph):
         depth_samples = depth_low + t * (depth_high - depth_low)  # [B,HW,Nf]
         return depth_samples[..., None]  # [B,HW,Nf,1]
 
-    def get_object_pose(self, opt, var, mode=None):
+    def get_object_pose(self, opt, var, sample_image_idx=None, mode=None):
         if mode in ["train", "val"]:
             # add learnable pose correction
-            var.se3_refine = self.se3_refine.weight[var.idx]
+            if sample_image_idx is None:
+                var.se3_refine = self.se3_refine.weight[var.idx]
+            else:
+                var.se3_refine = self.se3_refine.weight[sample_image_idx]
             # 0th frames' object pose is initialized as fixed hyperparameter
             pose = camera.lie.se3_to_SE3(var.se3_refine)
             # pose[var.idx == 0] = self.obj_pose_init
@@ -453,7 +581,7 @@ class Graph(base.Graph):
     def compute_loss(self, opt, var, mode=None):
         loss = edict()
         batch_size = len(var.idx)
-        image = var.image.view(batch_size, 3, opt.H*opt.W).permute(0, 2, 1)
+        image = var.image.view(batch_size, 3, opt.H * opt.W).permute(0, 2, 1)
         if opt.nerf.rand_rays and mode in ["train", "test-optim"]:
             image = image[:, var.ray_idx]
         # compute image losses
@@ -548,7 +676,7 @@ class CondNeRF(torch.nn.Module):
         rgb = feat.sigmoid_()  # [B,...,3]
         return rgb, density
 
-    def forward_samples(self, opt, center, ray, depth_samples, latent, pose, mode=None):
+    def forward_samples(self, opt, center, ray, depth_samples, latent, pose ,mode=None):
         """
         center, ray -> [B, n_rays, 3]
         depth_samples -> [B, n_rays, n_samples, 1]
@@ -558,7 +686,6 @@ class CondNeRF(torch.nn.Module):
         # 3D points in inhomogeneous coordinate
         points_3D_samples = camera.get_3D_points_from_depth(opt, center, ray, depth_samples,
                                                             multi_samples=True)  # [B, n_rays, n_samples, 3]
-
         # [B, n_rays, n_samples, 4]
         # Rigid transformation of points with learned pose
         points_3D_samples = camera.world2cam(points_3D_samples, pose[:, None, ...])
@@ -570,7 +697,10 @@ class CondNeRF(torch.nn.Module):
             ray_unit = torch_F.normalize(ray, dim=-1)  # [B,HW,3]
 
             # Rigid so(2)-transformation of rays with learned pose
-            ray_unit_samples = camera.world2cam_rays(ray_unit, pose)[..., None, :].expand_as(points_3D_samples)
+            try:
+                ray_unit_samples = camera.world2cam_rays(ray_unit, pose)[..., None, :].expand_as(points_3D_samples)
+            except:
+                print("debug")
         else:
             ray_unit_samples = None
 
@@ -597,110 +727,3 @@ class CondNeRF(torch.nn.Module):
             shape = input_enc.shape
             input_enc = (input_enc.view(-1, L) * weight).view(*shape)
         return input_enc
-
-# class NeuralRenderer(nn.Module):
-#     ''' Neural renderer class
-#     Args:
-#         n_feat (int): number of features
-#         input_dim (int): input dimension; if not equal to n_feat,
-#             it is projected to n_feat with a 1x1 convolution
-#         out_dim (int): output dimension
-#         final_actvn (bool): whether to apply a final activation (sigmoid)
-#         min_feat (int): minimum features
-#         img_size (int): output image size
-#         use_rgb_skip (bool): whether to use RGB skip connections
-#         upsample_feat (str): upsampling type for feature upsampling
-#         upsample_rgb (str): upsampling type for rgb upsampling
-#         use_norm (bool): whether to use normalization
-#     '''
-#
-#     def __init__(
-#             self, n_feat=128, input_dim=128, out_dim=3, final_actvn=True,
-#             min_feat=32, img_size=64, use_rgb_skip=True,
-#             upsample_feat="near_neigh", upsample_rgb="bilinear", use_norm=False,
-#             **kwargs):
-#         super().__init__()
-#         self.final_actvn = final_actvn
-#         self.input_dim = input_dim
-#         self.use_rgb_skip = use_rgb_skip
-#         self.use_norm = use_norm
-#         n_blocks = int(log2(img_size) - 4)
-#
-#         assert (upsample_feat in ("near_neigh", "bilinear"))
-#         if upsample_feat == "near_neigh":
-#             self.upsample_2 = nn.Upsample(scale_factor=2.)
-#         elif upsample_feat == "bilinear":
-#             self.upsample_2 = nn.Sequential(nn.Upsample(
-#                 scale_factor=2, mode='bilinear', align_corners=False), Blur())
-#
-#         assert (upsample_rgb in ("near_neigh", "bilinear"))
-#         if upsample_rgb == "near_neigh":
-#             self.upsample_rgb = nn.Upsample(scale_factor=2.)
-#         elif upsample_rgb == "bilinear":
-#             self.upsample_rgb = nn.Sequential(nn.Upsample(
-#                 scale_factor=2, mode='bilinear', align_corners=False), Blur())
-#
-#         if n_feat == input_dim:
-#             self.conv_in = lambda x: x
-#         else:
-#             self.conv_in = nn.Conv2d(input_dim, n_feat, 1, 1, 0)
-#
-#         self.conv_layers = nn.ModuleList(
-#             [nn.Conv2d(n_feat, n_feat // 2, 3, 1, 1)] +
-#             [nn.Conv2d(max(n_feat // (2 ** (i + 1)), min_feat),
-#                        max(n_feat // (2 ** (i + 2)), min_feat), 3, 1, 1)
-#              for i in range(0, n_blocks - 1)]
-#         )
-#         if use_rgb_skip:
-#             self.conv_rgb = nn.ModuleList(
-#                 [nn.Conv2d(input_dim, out_dim, 3, 1, 1)] +
-#                 [nn.Conv2d(max(n_feat // (2 ** (i + 1)), min_feat),
-#                            out_dim, 3, 1, 1) for i in range(0, n_blocks)]
-#             )
-#         else:
-#             self.conv_rgb = nn.Conv2d(
-#                 max(n_feat // (2 ** (n_blocks)), min_feat), 3, 1, 1)
-#
-#         if use_norm:
-#             self.norms = nn.ModuleList([
-#                 nn.InstanceNorm2d(max(n_feat // (2 ** (i + 1)), min_feat))
-#                 for i in range(n_blocks)
-#             ])
-#         self.actvn = nn.LeakyReLU(0.2, inplace=True)
-#
-#     def forward(self, x):
-#
-#         net = self.conv_in(x)
-#
-#         if self.use_rgb_skip:
-#             rgb = self.upsample_rgb(self.conv_rgb[0](x))
-#
-#         for idx, layer in enumerate(self.conv_layers):
-#             hid = layer(self.upsample_2(net))
-#             if self.use_norm:
-#                 hid = self.norms[idx](hid)
-#             net = self.actvn(hid)
-#
-#             if self.use_rgb_skip:
-#                 rgb = rgb + self.conv_rgb[idx + 1](net)
-#                 if idx < len(self.conv_layers) - 1:
-#                     rgb = self.upsample_rgb(rgb)
-#
-#         if not self.use_rgb_skip:
-#             rgb = self.conv_rgb(net)
-#
-#         if self.final_actvn:
-#             rgb = torch.sigmoid(rgb)
-#         return rgb
-#
-#
-# class Blur(nn.Module):
-#     def __init__(self):
-#         super().__init__()
-#         f = torch.Tensor([1, 2, 1])
-#         self.register_buffer('f', f)
-#
-#     def forward(self, x):
-#         f = self.f
-#         f = f[None, None, :] * f[None, :, None]
-#         return filter2D(x, f, normalized=True)
