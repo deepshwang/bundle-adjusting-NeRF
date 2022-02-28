@@ -1,1 +1,0 @@
-{"train/step": 1, "train/render": 0.20154103636741638, "train/render_fine": 0.2560836970806122, "train/all": 0.45762473344802856, "train/lr": 0.0005, "train/lr_pose": 0.001, "_runtime": 2, "_timestamp": 1645696258, "_step": 0, "_wandb": {"runtime": 34}}
