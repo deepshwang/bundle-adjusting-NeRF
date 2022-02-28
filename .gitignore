@@ -128,3 +128,11 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+output/
+data/blender/
+data/llff/
+external/
+__MACOSX/
+.idea/
+

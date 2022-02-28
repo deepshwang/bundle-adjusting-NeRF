@@ -1,0 +1,21 @@
+channels:
+  - conda-forge
+dependencies:
+  - numpy
+  - scipy
+  - tqdm
+  - termcolor
+  - easydict
+  - imageio
+  - ipdb
+  - tensorboard
+  - visdom
+  - matplotlib
+  - scikit-video
+  - trimesh
+  - pyyaml
+  - pip
+  - gdown
+  - pip:
+    - lpips
+    - pymcubes
