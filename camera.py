@@ -42,13 +42,26 @@ class Pose():
         pose_inv = self(R=R_inv, t=t_inv)
         return pose_inv
 
-    def compose(self, pose_list):
+    def compose(self,pose_list):
         # compose a sequence of poses together
         # pose_new(x) = poseN o ... o pose2 o pose1(x)
         pose_new = pose_list[0]
         for pose in pose_list[1:]:
-            pose_new = self.compose_pair(pose_new, pose)
-        return pose_new
+            pose_new = self.compose_pair(pose_new,pose)
+        return
+
+    def cascadal_compose(self, pose):
+        # cumulative cascadal composition of a sequence of poses together
+        # out[n] = pose[n] o pose[n-1].detach() ... o pose[1].detach() o pose[0].detach()
+        pose_list = [pose[i] for i in range(len(pose))]
+        composed_list=[]
+        pose_front = pose_list[0]
+        composed_list.append(pose_front)
+
+        for i, pose in enumerate(pose_list[1:]):
+            pose_front = self.compose_pair(pose_front.detach(), pose)
+            composed_list.append(pose_front)
+        return torch.stack(composed_list)
 
     def compose_pair(self, pose_a, pose_b):
         # pose_new(x) = pose_b o pose_a(x)
@@ -218,6 +231,7 @@ def world2cam(X, pose):  # [B,N,3]
     except:
         print("debug")
 
+
 def world2cam_rays(rays, pose):
     """
     :param rays: (B, num_rays, 3)
@@ -225,6 +239,7 @@ def world2cam_rays(rays, pose):
     :return: (B, num_rays, 3')
     """
     return rays @ pose[..., :3].transpose(-1, -2)
+
 
 def cam2img(X, cam_intr):
     return X @ cam_intr.transpose(-1, -2)
@@ -268,7 +283,7 @@ def get_center_and_ray(opt, pose, intr=None, sample_image_idx=None):  # [HW,2]
     if sample_image_idx is None:
         batch_size = pose.shape[0]
     else:
-        batch_size=len(sample_image_idx)
+        batch_size = len(sample_image_idx)
         pose = pose[sample_image_idx]
     xy_grid = xy_grid.repeat(batch_size, 1, 1)  # [B,HW,2]
     grid_3D = img2cam(to_hom(xy_grid), intr)  # [B,HW,3]
