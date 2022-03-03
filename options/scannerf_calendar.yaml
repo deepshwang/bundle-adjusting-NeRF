@@ -1,5 +1,5 @@
 wandb: true
-project: scannerf-v1
+project: scannerf-v2
 model: scannerf
 max_iter: 200000                                            # train to maximum number of iterations
 # Desired image size
@@ -9,8 +9,8 @@ yaml:
 
 freq:                                                       # periodic actions during training
     scalar: 20                                             # log losses and scalar states (every N iterations)
-    vis: 5000                                               # visualize results (every N iterations)
-    val: 5000                                               # validate on val set (every N iterations)
+    vis: 4000                                               # visualize results (every N iterations)
+    val: 4000                                               # validate on val set (every N iterations)
     ckpt: 5000                                              # save checkpoint (every N iterations)
 
 group:                                                      # name of experiment group
