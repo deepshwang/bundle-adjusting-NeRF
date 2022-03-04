@@ -11,7 +11,7 @@ from easydict import EasyDict as edict
 import visdom
 import matplotlib.pyplot as plt
 from math import log2
-from kornia.filters import filter2D
+#from kornia.filters import filter2D
 import importlib
 import wandb
 
@@ -85,6 +85,7 @@ class Model():
             - Pose parameters: (6 * N_obj * number of frames) number of parameters
             - Latent code: N_obj * dim_latent
         """
+
         # NeRF network optimizers
         log.info("setting up optimizers...")
         optimizer = getattr(torch.optim, opt.optim.algo)
@@ -142,6 +143,7 @@ class Model():
 
     # WORKING
     def train_iteration(self, opt, var, loader):
+        self.graph.train()
         # zero-grad optimizers
         self.optim.zero_grad()
         self.optim_pose.zero_grad()

@@ -61,7 +61,7 @@ nerf:                                                       # NeRF-specific opti
     view_dep: true                                          # condition MLP on viewpoint
     depth:                                                  # depth-related options
         param: metric                                       # depth parametrization (for sampling along the ray)
-        range: [2,6]                                        # near/far bounds for depth sampling
+        range: [0.2,2]                                        # near/far bounds for depth sampling
     sample_intvs: 128                                       # number of samples
     sample_intvs_fine: 64                                   # number of samples for the fine NeRF
     sample_stratified: true                                 # stratified sampling
