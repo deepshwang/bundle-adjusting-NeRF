@@ -135,4 +135,4 @@ data/llff/
 external/
 __MACOSX/
 .idea/
-
+*.sh

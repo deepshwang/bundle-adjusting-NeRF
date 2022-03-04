@@ -11,7 +11,7 @@ from easydict import EasyDict as edict
 import visdom
 import matplotlib.pyplot as plt
 from math import log2
-from kornia.filters import filter2D
+#from kornia.filters import filter2D
 import importlib
 import wandb
 

@@ -8,7 +8,7 @@ import tqdm
 from easydict import EasyDict as edict
 
 import lpips
-from external.pohsun_ssim import pytorch_ssim
+#from external.pohsun_ssim import pytorch_ssim
 
 import util,util_vis
 from util import log,debug
