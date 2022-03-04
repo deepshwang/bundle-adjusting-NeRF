@@ -138,7 +138,7 @@ class Model():
             var = self.train_data.all
             self.train_iteration(opt, var, loader)
             if self.it % opt.freq.ckpt == 0:
-                self.save_checkpoint(opt, ep=None, it=self.it)
+                self.save_checkpoint(opt, it=self.it)
         log.title("TRAINING DONE")
 
     # WORKING
