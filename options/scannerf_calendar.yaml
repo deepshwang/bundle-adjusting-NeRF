@@ -1,5 +1,5 @@
 wandb: true
-project: scannerf-v2
+project: scannerf-v5
 model: scannerf
 max_iter: 200000                                            # train to maximum number of iterations
 # Desired image size
@@ -16,15 +16,16 @@ freq:                                                       # periodic actions d
 group:                                                      # name of experiment group
 name:                                                       # name of experiment run
 seed: 0                                                     # seed number (for both numpy and pytorch)
-gpu: 0                                                      # GPU index number
+gpu: 3                                                      # GPU index number
 cpu: false                                                  # run only on CPU (not supported now)
 load:                                                       # load checkpoint from filename
 resume: false                                               # resume training (true for latest checkpoint, or number for specific epoch number)
 output_root: output                                         # root path for output files (checkpoints and results)
 
 scannerf:
-    N_obj: 1                                                 # Number of foreground object as a prior
-
+    N_obj: 1                                                # Number of foreground object as a prior
+    N_block: 10                                             # Number of cascadal blocks                                             
+    
 data:                                                       # data options
     dataset: static_blender                                 # dataset name
     scene: calendar                                         # scene name
@@ -118,4 +119,4 @@ trimesh:                                                    # options for marchi
 barf_c2f:                                                   # coarse-to-fine scheduling on positional encoding
 
 viz:
-    sample_image_idx: [1, 33, 66]
+    sample_image_idx: [1, 5, 8]
