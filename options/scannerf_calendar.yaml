@@ -1,5 +1,5 @@
-wandb: true
-project: scannerf-v1
+wandb: false
+project: scannerf-v4
 model: scannerf
 max_iter: 200000                                            # train to maximum number of iterations
 # Desired image size
@@ -16,14 +16,15 @@ freq:                                                       # periodic actions d
 group:                                                      # name of experiment group
 name:                                                       # name of experiment run
 seed: 0                                                     # seed number (for both numpy and pytorch)
-gpu: 1                                                      # GPU index number
+gpu: 5                                                      # GPU index number
 cpu: false                                                  # run only on CPU (not supported now)
 load:                                                       # load checkpoint from filename
 resume: false                                               # resume training (true for latest checkpoint, or number for specific epoch number)
 output_root: output                                         # root path for output files (checkpoints and results)
 
 scannerf:
-    N_obj: 1                                                 # Number of foreground object as a prior
+    N_obj: 1                                                # Number of foreground object as a prior
+    N_block: 10                                             # Number of cascadal block steps for CFT
 
 data:                                                       # data options
     dataset: static_blender                                 # dataset name

@@ -130,15 +130,22 @@ class Model():
         self.ep = 0  # dummy for timer
         # training
         loader = tqdm.trange(opt.max_iter, desc="training", leave=False)
-        for self.it in loader:
-            if self.it < self.iter_start:
-                continue
-            # set var to all available images (NOTE: For stricter control of annealing schedule...?)
-            var = self.train_data.all
-            self.train_iteration(opt, var, loader)
-            if self.it % opt.freq.ckpt == 0:
-                self.save_checkpoint(opt, it=self.it)
-        log.title("TRAINING DONE")
+        var = self.train_data.all
+        for b in range(opt.scannerf.N_block):
+            in_idx = (b+1) * len(self.train_data) // opt.scannerf.N_block
+            var_in = edict()
+            var.block = b
+            var_in[k] = var[k][:in_idx] for k in var.keys()
+            for self.it in loader:
+                if self.it < self.iter_start:
+                    continue
+                # set var to all available images (NOTE: For stricter control of annealing schedule...?)
+                self.train_iteration(opt, var_in, loader)
+                if self.it % opt.freq.ckpt == 0:
+                    self.save_checkpoint(opt, it=self.it)
+            log.title("TRAINING DONE for {}th block".format(b))
+            if b == 0:
+                return
 
     # WORKING
     def train_iteration(self, opt, var, loader):
@@ -547,7 +554,6 @@ class Graph(base.Graph):
                 var.se3_refine = self.se3_refine.weight[sample_image_idx]
             # 0th frames' object pose is initialized as fixed hyperparameter
             pose = camera.lie.se3_to_SE3(var.se3_refine)
-            # pose[var.idx == 0] = self.obj_pose_init
         elif mode in ["eval", "test-optim"]:
             # align test pose to refined coordinate system (up to sim3)
             sim3 = self.sim3
