@@ -134,8 +134,8 @@ class Model():
         for b in range(opt.scannerf.N_block):
             in_idx = (b+1) * len(self.train_data) // opt.scannerf.N_block
             var_in = edict()
-            var.block = b
-            var_in[k] = var[k][:in_idx] for k in var.keys()
+            for k in var.keys(): var_in[k] = var[k][:in_idx]
+            var_in.block = b
             for self.it in loader:
                 if self.it < self.iter_start:
                     continue

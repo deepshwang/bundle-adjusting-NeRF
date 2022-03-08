@@ -1,4 +1,4 @@
-wandb: false
+wandb: true
 project: scannerf-v4
 model: scannerf
 max_iter: 200000                                            # train to maximum number of iterations
@@ -16,7 +16,7 @@ freq:                                                       # periodic actions d
 group:                                                      # name of experiment group
 name:                                                       # name of experiment run
 seed: 0                                                     # seed number (for both numpy and pytorch)
-gpu: 5                                                      # GPU index number
+gpu: 2                                                      # GPU index number
 cpu: false                                                  # run only on CPU (not supported now)
 load:                                                       # load checkpoint from filename
 resume: false                                               # resume training (true for latest checkpoint, or number for specific epoch number)
@@ -67,7 +67,7 @@ nerf:                                                       # NeRF-specific opti
     sample_intvs_fine: 64                                   # number of samples for the fine NeRF
     sample_stratified: true                                 # stratified sampling
     fine_sampling: true                                     # hierarchical sampling with another NeRF
-    rand_rays: 32                                           # number of random rays for each step
+    rand_rays: 256                                          # number of random rays for each step
     val_rand_rays: 1024                                     # Number of rays for visual validations
     density_noise_reg:                                      # Gaussian noise on density output as regularization
     setbg_opaque: false                                     # fill transparent rendering with known background color (Blender only)
@@ -119,4 +119,4 @@ trimesh:                                                    # options for marchi
 barf_c2f:                                                   # coarse-to-fine scheduling on positional encoding
 
 viz:
-    sample_image_idx: [1, 33, 66]
+    sample_image_idx: [1, 5, 8]
