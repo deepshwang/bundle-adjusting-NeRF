@@ -1,4 +1,4 @@
-wandb: false
+wandb: true
 project: scannerf-v4
 model: scannerf
 max_iter: 200000                                            # train to maximum number of iterations
@@ -16,7 +16,7 @@ freq:                                                       # periodic actions d
 group:                                                      # name of experiment group
 name:                                                       # name of experiment run
 seed: 0                                                     # seed number (for both numpy and pytorch)
-gpu: 2                                                      # GPU index number
+gpu: 3                                                      # GPU index number
 cpu: false                                                  # run only on CPU (not supported now)
 load:                                                       # load checkpoint from filename
 resume: false                                               # resume training (true for latest checkpoint, or number for specific epoch number)
@@ -24,7 +24,7 @@ output_root: output                                         # root path for outp
 
 scannerf:
     N_obj: 1                                                # Number of foreground object as a prior
-    N_block: 10                                             # Number of cascadal block steps for CFT
+    N_block: 20                                             # Number of cascadal block steps for CFT
 
 data:                                                       # data options
     dataset: static_blender                                 # dataset name
@@ -89,7 +89,7 @@ optim:                                                      # optimization optio
         gamma:
 
     lr_pose: 1.e-3                                          # learning rate of object poses
-    lr_pose_end: 1.e-5                                      # terminal learning rate of camera poses (only used with sched_pose.type=ExponentialLR)
+    lr_pose_end: 1.e-4                                      # terminal learning rate of camera poses (only used with sched_pose.type=ExponentialLR)
     warmup_pose:                                            # linear warmup of the pose learning rate (N iterations)
     sched_pose:                                             # learning rate scheduling options
         type: ExponentialLR                                 # scheduler (see PyTorch doc)
@@ -119,4 +119,4 @@ trimesh:                                                    # options for marchi
 barf_c2f:                                                   # coarse-to-fine scheduling on positional encoding
 
 viz:
-    sample_image_idx: [1, 5, 8]
+    sample_image_idx: [0, 2, 4]

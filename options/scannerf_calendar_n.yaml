@@ -1,7 +1,7 @@
-wandb: false
+wandb: true
 project: scannerf-v4
 model: scannerf
-max_iter: 200000                                            # train to maximum number of iterations
+max_iter: 400000                                            # train to maximum number of iterations
 # Desired image size
 H: 540
 W: 960
@@ -16,7 +16,7 @@ freq:                                                       # periodic actions d
 group:                                                      # name of experiment group
 name:                                                       # name of experiment run
 seed: 0                                                     # seed number (for both numpy and pytorch)
-gpu: 2                                                      # GPU index number
+gpu: 0                                                      # GPU index number
 cpu: false                                                  # run only on CPU (not supported now)
 load:                                                       # load checkpoint from filename
 resume: false                                               # resume training (true for latest checkpoint, or number for specific epoch number)
@@ -28,7 +28,7 @@ scannerf:
 
 data:                                                       # data options
     dataset: static_blender                                 # dataset name
-    scene: calendar                                         # scene name
+    scene: calendar_dense                                   # scene name
     raw_image_size: [2160, 3840]                            # input image sizes [height,width]
     num_workers: 4                                          # number of parallel workers for data loading
     preload: true                                           # preload the entire dataset into the memory
@@ -67,8 +67,8 @@ nerf:                                                       # NeRF-specific opti
     sample_intvs_fine: 64                                   # number of samples for the fine NeRF
     sample_stratified: true                                 # stratified sampling
     fine_sampling: true                                     # hierarchical sampling with another NeRF
-    rand_rays: 256                                          # number of random rays for each step
-    val_rand_rays: 1024                                     # Number of rays for visual validations
+    rand_rays: 196                                          # number of random rays for each step
+    val_rand_rays: 512                                      # Number of rays for visual validations
     density_noise_reg:                                      # Gaussian noise on density output as regularization
     setbg_opaque: false                                     # fill transparent rendering with known background color (Blender only)
 
@@ -83,7 +83,7 @@ optim:                                                      # optimization optio
     algo: Adam                                              # optimizer (see PyTorch doc)
 
     lr: 5.e-4                                               # learning rate (main)
-    lr_end: 1.e-4                                           # terminal learning rate (only used with sched.type=ExponentialLR)
+    lr_end: 5.e-6                                           # terminal learning rate (only used with sched.type=ExponentialLR)
     sched:                                                  # learning rate scheduling options
         type: ExponentialLR                                 # scheduler (see PyTorch doc)
         gamma:
@@ -119,4 +119,4 @@ trimesh:                                                    # options for marchi
 barf_c2f:                                                   # coarse-to-fine scheduling on positional encoding
 
 viz:
-    sample_image_idx: [1, 5, 8]
+    sample_image_idx: [1, 10, 19]

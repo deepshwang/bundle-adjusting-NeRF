@@ -1,7 +1,7 @@
-wandb: false
+wandb: true
 project: scannerf-v4
 model: scannerf
-max_iter: 200000                                            # train to maximum number of iterations
+max_iter: 400000                                            # train to maximum number of iterations
 # Desired image size
 H: 540
 W: 960
@@ -18,7 +18,7 @@ name:                                                       # name of experiment
 seed: 0                                                     # seed number (for both numpy and pytorch)
 gpu: 2                                                      # GPU index number
 cpu: false                                                  # run only on CPU (not supported now)
-load:                                                       # load checkpoint from filename
+lod:                                                       # load checkpoint from filename
 resume: false                                               # resume training (true for latest checkpoint, or number for specific epoch number)
 output_root: output                                         # root path for output files (checkpoints and results)
 
@@ -89,7 +89,7 @@ optim:                                                      # optimization optio
         gamma:
 
     lr_pose: 1.e-3                                          # learning rate of object poses
-    lr_pose_end: 1.e-5                                      # terminal learning rate of camera poses (only used with sched_pose.type=ExponentialLR)
+    lr_pose_end: 5.e-5                                      # terminal learning rate of camera poses (only used with sched_pose.type=ExponentialLR)
     warmup_pose:                                            # linear warmup of the pose learning rate (N iterations)
     sched_pose:                                             # learning rate scheduling options
         type: ExponentialLR                                 # scheduler (see PyTorch doc)
