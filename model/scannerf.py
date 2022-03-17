@@ -447,20 +447,25 @@ class Graph(base.Graph):
         composite_density_samples_fine = 0.0
 
         for i in range(self.N_obj + 1):
-            # Background object: normal NeRF rendering
             if i == 0:
-                rgb_samples, density_samples = self.scannerf[2 * i].forward_samples(opt, center, ray, depth_samples,
+                #rgb_samples = 0
+                #density_samples = 0
+                rgb_samples, density_samples = self.scannerf[2 * i].forward_samples(opt, center, ray,
+                                                                                    depth_samples,
                                                                                     mode=mode)
+
 
             # Foreground objects: bundle adjusting pose and conditional nerf
             else:
+                rgb_samples=0
+                density_samples=0
                 latent = self.latent.weight[i - 1]
-                rgb_samples, density_samples = self.scannerf[2 * i].forward_samples(opt, center, ray,
-                                                                                    depth_samples, latent, pose,
-                                                                                    mode=mode)
+                # rgb_samples, density_samples = self.scannerf[2 * i].forward_samples(opt, center, ray,
+                #                                                                    depth_samples, latent, pose,
+                #                                                                    mode=mode)
 
-            composite_rgb_samples += rgb_samples / (self.N_obj + 1)
-            composite_density_samples += density_samples / (self.N_obj + 1)
+            composite_rgb_samples += rgb_samples / (self.N_obj)
+            composite_density_samples += density_samples / (self.N_obj)
             prob = self.composite(opt, ray, rgb_samples, density_samples, depth_samples, prob_only=True)
 
             if opt.nerf.fine_sampling:
@@ -702,7 +707,6 @@ class CondNeRF(torch.nn.Module):
         # [B, n_rays, n_samples, 4]
         # Rigid transformation of points with learned pose
         points_3D_samples = camera.world2cam(points_3D_samples, pose[:, None, ...])
-
         latent = latent[None, None, None, :].expand(points_3D_samples.shape[0], points_3D_samples.shape[1],
                                                     points_3D_samples.shape[2], -1)
 
