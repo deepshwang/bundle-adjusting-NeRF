@@ -14,7 +14,7 @@ from math import log2
 #from kornia.filters import filter2D
 import importlib
 import wandb
-
+import ipdb
 import util, util_vis
 from util import log, debug
 from . import nerf
@@ -69,13 +69,12 @@ class Model():
         epoch_start, iter_start = None, None
         if opt.resume:
             log.info("resuming from previous checkpoint...")
-            epoch_start, iter_start = util.restore_checkpoint(opt, self, resume=opt.resume)
+            iter_start = util.restore_checkpoint(opt, self, resume=opt.resume)
         elif opt.load is not None:
             log.info("loading weights from checkpoint {}...".format(opt.load))
-            epoch_start, iter_start = util.restore_checkpoint(opt, self, load_name=opt.load)
+            iter_start = util.restore_checkpoint(opt, self, load_name=opt.load)
         else:
             log.info("initializing weights from scratch...")
-        self.epoch_start = epoch_start or 0
         self.iter_start = iter_start or 0
 
     def setup_optimizer(self, opt):
@@ -131,10 +130,12 @@ class Model():
         # training
         loader = tqdm.trange(opt.max_iter, desc="training", leave=False)
         for self.it in loader:
-            if self.it < self.iter_start:
-                continue
+            #if self.it < self.iter_start:
+            #    continue
             # set var to all available images (NOTE: For stricter control of annealing schedule...?)
             var = self.train_data.all
+            self.visualize(opt, var, sample_image_idx=opt.viz.sample_image_idx, step=self.it + 1)
+            ipdb.set_trace()
             self.train_iteration(opt, var, loader)
             if self.it % opt.freq.ckpt == 0:
                 self.save_checkpoint(opt, it=self.it)
@@ -247,7 +248,7 @@ class Model():
         self.graph.eval()
         var = self.graph.forward(opt, var, sample_image_idx=sample_image_idx, mode="val") # Forward all images
         invdepth = 1/(var.depth_fine/var.opacity_fine+eps)
-        rgb_map = var.rgb_fine.view(-1,opt.H,opt.W,3).permute(0,3,1,2) # [B,3,H,W]
+        rgb_map = var.rgb.view(-1,opt.H,opt.W,3).permute(0,3,1,2) # [B,3,H,W]
         # invdepth_map = invdepth.view(-1, opt.H, opt.W, 1).permute(0, 3, 1, 2)  # [B,1,H,W]
 
         ### Visualize rendered Image ###

@@ -131,11 +131,9 @@ def restore_checkpoint(opt,model,load_name=None,resume=False):
             print("restoring {}...".format(key))
             getattr(model,key).load_state_dict(checkpoint[key])
     if resume:
-        ep,it = checkpoint["epoch"],checkpoint["iter"]
-        if resume is not True: assert(resume==(ep or it))
-        print("resuming from epoch {0} (iteration {1})".format(ep,it))
-    else: ep,it = None,None
-    return ep,it
+        it =checkpoint["iter"]
+    else: it = None
+    return it
 
 def save_checkpoint(opt, model, it, latest=False, children=None):
     os.makedirs("{0}/model".format(opt.output_path),exist_ok=True)

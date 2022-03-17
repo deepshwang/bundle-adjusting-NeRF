@@ -1,5 +1,5 @@
 wandb: true
-project: scannerf-v4
+project: scannerf-debug-visualize
 model: scannerf
 max_iter: 400000                                            # train to maximum number of iterations
 # Desired image size
