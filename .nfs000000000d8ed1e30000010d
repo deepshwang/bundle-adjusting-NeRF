@@ -1,0 +1,201 @@
+[33mcommit 45c5e2e9db0645735fc9783b08fe9449de0afc1e[m[33m ([m[1;36mHEAD -> [m[1;32mv1_scannerf[m[33m)[m
+Author: Sungwon Hwang <shwang.14@kaist.ac.kr>
+Date:   Thu Mar 17 05:31:14 2022 +0000
+
+    refresh
+
+[33mcommit ab97cece3643cf14b17462c600a17a38dcae5386[m
+Author: Sungwon Hwang <shwang.14@kaist.ac.kr>
+Date:   Thu Mar 17 05:29:42 2022 +0000
+
+    w
+
+[33mcommit bb23816409d5ad0c59940b797f1cdf6d3b57765c[m[33m ([m[1;31morigin/v1_scannerf[m[33m)[m
+Author: Sungwon Hwang <shwang.14@kaist.ac.kr>
+Date:   Fri Mar 4 07:39:55 2022 +0000
+
+    changes
+
+[33mcommit 5b6741349b9b55b32a0d07a4e27c40bd7136dadd[m
+Author: Sungwon Hwang <shwang.14@kaist.ac.kr>
+Date:   Fri Mar 4 07:33:50 2022 +0000
+
+    added runsh
+
+[33mcommit b262aaf05ea9ce58a99f671c73f7d5d74677a038[m
+Author: Sungwon Hwang <shwang.14@kaist.ac.kr>
+Date:   Fri Mar 4 07:29:29 2022 +0000
+
+     change
+
+[33mcommit d2616ce31ef648d9cbb5c0f7c71ca0ecd3e9b3c1[m
+Author: Sungwon Hwang <shwang.14@kaist.ac.kr>
+Date:   Fri Mar 4 07:21:10 2022 +0000
+
+    changes
+
+[33mcommit dbb331e93749ae5ac33d2d33bf767363ac0f5a20[m
+Author: Sungwon Hwang <shwang.14@kaist.ac.kr>
+Date:   Mon Feb 28 15:16:52 2022 +0900
+
+    v1 kinda done
+
+[33mcommit 676c552856f5dc07767ee76346ae022943cd4434[m
+Author: Sungwon Hwang <shwang.14@kaist.ac.kr>
+Date:   Mon Feb 28 15:02:28 2022 +0900
+
+    added gitignore
+
+[33mcommit a6d0593e9444205d45b2cde859671b77f1d83690[m
+Author: Sungwon Hwang <shwang.14@kaist.ac.kr>
+Date:   Mon Feb 28 14:33:04 2022 +0900
+
+    changed gitignore
+
+[33mcommit c6b89f70d4b0ef2ac942594e539f205a380a41f6[m
+Author: Sungwon Hwang <shwang.14@kaist.ac.kr>
+Date:   Thu Feb 24 22:23:33 2022 +0900
+
+    working hard
+
+[33mcommit 63d754fa764ef7ff7cdf44931d31d1878a8eb2eb[m
+Author: Sungwon Hwang <shwang.14@kaist.ac.kr>
+Date:   Thu Feb 24 18:54:23 2022 +0900
+
+    working hard
+
+[33mcommit 954fb9f0d3be4b48ea4e1e209d5b1494e6885107[m
+Author: Sungwon Hwang <shwang.14@kaist.ac.kr>
+Date:   Wed Feb 23 22:16:06 2022 +0900
+
+    working hard
+
+[33mcommit fa17cbdca2cce29f58a252669aeb30c64c6248b4[m
+Author: Sungwon Hwang <shwang.14@kaist.ac.kr>
+Date:   Tue Feb 22 17:09:57 2022 +0900
+
+    wrote scannerf v1. currently debugging
+
+[33mcommit 516e3fc74452fe36acdeb02638c047eb7d6ef552[m
+Author: Sungwon Hwang <shwang.14@kaist.ac.kr>
+Date:   Fri Feb 18 21:51:12 2022 +0900
+
+    wrote scannerf v1. currently debugging
+
+[33mcommit 0dca8cd14bf010eae86916a7a4d27111be8bfa6f[m
+Author: Sungwon Hwang <shwang.14@kaist.ac.kr>
+Date:   Thu Feb 17 21:51:40 2022 +0900
+
+    edited scannerf
+
+[33mcommit 170451582862aed902fc090b810e17f11d79838f[m
+Author: Sungwon Hwang <shwang.14@kaist.ac.kr>
+Date:   Tue Feb 15 21:33:53 2022 +0900
+
+    added calendar dataloader & yaml
+
+[33mcommit 24ec839a8f414eec447c73820ca3b08579fb5263[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m, [m[1;32mmain[m[33m)[m
+Author: Sungwon Hwang <shwang.14@kaist.ac.kr>
+Date:   Fri Feb 11 16:14:48 2022 +0900
+
+    changed requirements (torch installed separately)
+
+[33mcommit f04e37cc3417bab25d71ccd9146bf696534ff3b1[m
+Merge: 55a5a00 c232040
+Author: Chen-Hsuan Lin <chenhsuanl@nvidia.com>
+Date:   Wed Jan 5 01:24:55 2022 -0800
+
+    Merge branch 'martinarroyo-main' into main
+
+[33mcommit c2320402ad3a3a815c01e08f77ac660f51f5048c[m
+Author: Diego Martin Arroyo <martinarroyo@google.com>
+Date:   Thu Dec 23 14:33:34 2021 +0100
+
+    Adds a script to extract the 3D mesh for a pretrained model (Followup #8)
+
+[33mcommit 446cdd7985ddc2e72136ad0fde7e246c2b557b14[m
+Author: Chen-Hsuan Lin <chlin@cmu.edu>
+Date:   Wed Dec 22 23:35:19 2021 -0800
+
+    Update README.md
+
+[33mcommit 55a5a007d3c888d68040ae0c2e3dedb2f88e9388[m
+Merge: 97f8320 4e76604
+Author: Chen-Hsuan Lin <chenhsuanl@nvidia.com>
+Date:   Wed Dec 15 14:43:36 2021 -0800
+
+    Merge branch 'szymanowiczs-wrap_in_def_main' into main
+
+[33mcommit 4e766040706cbb80df8b86e5487ff02c364f0ae1[m
+Merge: 97f8320 964db60
+Author: Chen-Hsuan Lin <chenhsuanl@nvidia.com>
+Date:   Wed Dec 15 14:41:50 2021 -0800
+
+    Merge branch 'wrap_in_def_main' of https://github.com/szymanowiczs/bundle-adjusting-NeRF into szymanowiczs-wrap_in_def_main
+
+[33mcommit 97f83204ff9d6e87ceb077cf882bccb97271f3ea[m
+Merge: 8285dd0 83405cc
+Author: Chen-Hsuan Lin <chenhsuanl@nvidia.com>
+Date:   Wed Dec 15 14:34:29 2021 -0800
+
+    Merge branch 'szymanowiczs-detach_camera_before_preprocessing' into main
+
+[33mcommit 83405cc5555c44b02492f7cfca70caf8563da828[m
+Author: szymanowiczs <szymanowiczs@gmail.com>
+Date:   Wed Dec 15 13:07:46 2021 +0000
+
+    Clone poses and intrinsics in llff dataset
+
+[33mcommit fc2a0d649ebba459f6b040c9a64634175003fd86[m
+Author: szymanowiczs <szymanowiczs@gmail.com>
+Date:   Wed Dec 15 13:07:09 2021 +0000
+
+    Clone camera pose and intrinsics in iphone dataset
+
+[33mcommit 0805ada08e277f4196f06a2571c49f5ec2a3cc8b[m
+Author: szymanowiczs <szymanowiczs@gmail.com>
+Date:   Wed Dec 15 13:06:20 2021 +0000
+
+    Clone pose and intrinsics in blender dataset
+
+[33mcommit 964db607148401dc0c868ce54627ff889c240a60[m
+Author: szymanowiczs <szymanowiczs@gmail.com>
+Date:   Wed Dec 15 12:46:33 2021 +0000
+
+    Wrap evaluate.py in main()
+
+[33mcommit 5b3300adac485da5b8662338db023e670efb337a[m
+Author: szymanowiczs <szymanowiczs@gmail.com>
+Date:   Wed Dec 15 12:45:42 2021 +0000
+
+    Wrap train in main()
+
+[33mcommit 8285dd09040fa0829c1fcb55e4d9d7e71b43d821[m
+Author: Chen-Hsuan Lin <chlin@cmu.edu>
+Date:   Mon Nov 8 12:37:23 2021 -0800
+
+    Update README.md
+
+[33mcommit 99218cc543eca5453a7c4829638ccffd0a7ad2f5[m
+Author: Chen-Hsuan Lin <chenhsuanl@nvidia.com>
+Date:   Mon Nov 8 01:10:47 2021 -0800
+
+    add planar image alignment experiment
+
+[33mcommit 419644ea4785cdbebb66a2d2810b1289bd927f7c[m
+Author: Chen-Hsuan Lin <chlin@cmu.edu>
+Date:   Thu Aug 19 05:49:52 2021 -0400
+
+    forgot requirements :P
+
+[33mcommit bf7d8836e0d4f9857337e4589feb690035a4adc4[m
+Author: Chen-Hsuan Lin <chlin@cmu.edu>
+Date:   Thu Aug 19 05:02:20 2021 -0400
+
+    release
+
+[33mcommit 353af84ec59911434f6ca09cbc7a49ff014e633f[m
+Author: Chen-Hsuan Lin <chlin@cmu.edu>
+Date:   Thu Jul 1 21:08:07 2021 -0400
+
+    Initial commit
