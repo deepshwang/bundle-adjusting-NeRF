@@ -9,7 +9,7 @@ yaml:
 
 freq:                                                       # periodic actions during training
     scalar: 20                                             # log losses and scalar states (every N iterations)
-    vis: 5000                                               # visualize results (every N iterations)
+    vis: 500                                               # visualize results (every N iterations)
     val: 5000                                               # validate on val set (every N iterations)
     ckpt: 5000                                              # save checkpoint (every N iterations)
 
@@ -65,6 +65,7 @@ nerf:                                                       # NeRF-specific opti
     depth:                                                  # depth-related options
         param: metric                                       # depth parametrization (for sampling along the ray)
         range: [0.2,2]                                        # near/far bounds for depth sampling
+        bg_range: [6,8]
     sample_intvs: 128                                       # number of samples
     sample_intvs_fine: 64                                   # number of samples for the fine NeRF
     sample_stratified: true                                 # stratified sampling
