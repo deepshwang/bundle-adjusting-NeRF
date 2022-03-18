@@ -136,6 +136,4 @@ external/
 __MACOSX/
 .idea/
 
-*.yaml
-*.sh
 run_files/
