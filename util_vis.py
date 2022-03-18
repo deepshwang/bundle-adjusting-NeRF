@@ -236,7 +236,7 @@ def plot_save_poses_blender(opt,fig,pose,pose_ref=None,path=None,ep=None):
     # set up plot window(s)
     ax = fig.add_subplot(111,projection="3d")
     ax.set_title("epoch {}".format(ep),pad=0)
-    setup_3D_plot(ax,elev=45,azim=35,lim=edict(x=(-3,3),y=(-3,3),z=(-3,2.4)))
+    setup_3D_plot(ax, elev=45, azim=35, lim=edict(x=(-3,3),y=(-3,3),z=(-3,2.4)))
     plt.subplots_adjust(left=0,right=1,bottom=0,top=0.95,wspace=0,hspace=0)
     plt.margins(tight=True,x=0,y=0)
     # plot the cameras

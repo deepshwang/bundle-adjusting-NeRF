@@ -84,6 +84,7 @@ class Model():
             - Pose parameters: (6 * N_obj * number of frames) number of parameters
             - Latent code: N_obj * dim_latent
         """
+
         # NeRF network optimizers
         log.info("setting up optimizers...")
         optimizer = getattr(torch.optim, opt.optim.algo)
@@ -129,6 +130,7 @@ class Model():
         self.ep = 0  # dummy for timer
         # training
         loader = tqdm.trange(opt.max_iter, desc="training", leave=False)
+<<<<<<< HEAD
         for self.it in loader:
             #if self.it < self.iter_start:
             #    continue
@@ -140,9 +142,28 @@ class Model():
             if self.it % opt.freq.ckpt == 0:
                 self.save_checkpoint(opt, it=self.it)
         log.title("TRAINING DONE")
+=======
+        var = self.train_data.all
+        for b in range(opt.scannerf.N_block):
+            in_idx = (b+1) * len(self.train_data) // opt.scannerf.N_block
+            var_in = edict()
+            for k in var.keys(): var_in[k] = var[k][:in_idx]
+            var.block = b
+            for self.it in loader:
+                if self.it < self.iter_start:
+                    continue
+                # set var to all available images (NOTE: For stricter control of annealing schedule...?)
+                self.train_iteration(opt, var, loader)
+                if self.it % opt.freq.ckpt == 0:
+                    self.save_checkpoint(opt, it=self.it)
+            log.title("TRAINING DONE for {}th block".format(b))
+            if b == 0:
+                return
+>>>>>>> 9f450f8d7fe0acba0070badab0685173a1e4f324
 
     # WORKING
     def train_iteration(self, opt, var, loader):
+        self.graph.train()
         # zero-grad optimizers
         self.optim.zero_grad()
         self.optim_pose.zero_grad()
@@ -257,8 +278,9 @@ class Model():
 
         ### Visualize learned poses ###
         # Retrieve learned pose from graph
-        poses =self.graph.se3_refine.weight.detach().cpu()
+        poses = self.graph.se3_refine.weight.detach().cpu()
         poses = camera.lie.se3_to_SE3(poses)
+        poses = camera.pose.cascadal_compose(poses)
 
         # Visualize pose
         fig = plt.figure(figsize=(20, 10))
@@ -706,6 +728,8 @@ class CondNeRF(torch.nn.Module):
                                                             multi_samples=True)  # [B, n_rays, n_samples, 3]
         # [B, n_rays, n_samples, 4]
         # Rigid transformation of points with learned pose
+
+        pose = camera.pose.cascadal_compose(pose)
         points_3D_samples = camera.world2cam(points_3D_samples, pose[:, None, ...])
         latent = latent[None, None, None, :].expand(points_3D_samples.shape[0], points_3D_samples.shape[1],
                                                     points_3D_samples.shape[2], -1)

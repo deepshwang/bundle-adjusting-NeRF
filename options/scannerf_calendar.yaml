@@ -1,5 +1,5 @@
 wandb: true
-project: scannerf-v1
+project: scannerf-v5
 model: scannerf
 max_iter: 200000                                            # train to maximum number of iterations
 # Desired image size
@@ -9,22 +9,27 @@ yaml:
 
 freq:                                                       # periodic actions during training
     scalar: 20                                             # log losses and scalar states (every N iterations)
-    vis: 5000                                               # visualize results (every N iterations)
-    val: 5000                                               # validate on val set (every N iterations)
+    vis: 4000                                               # visualize results (every N iterations)
+    val: 4000                                               # validate on val set (every N iterations)
     ckpt: 5000                                              # save checkpoint (every N iterations)
 
 group:                                                      # name of experiment group
 name:                                                       # name of experiment run
 seed: 0                                                     # seed number (for both numpy and pytorch)
+<<<<<<< HEAD
 gpu: 1                                                      # GPU index number
+=======
+gpu: 3                                                      # GPU index number
+>>>>>>> 9f450f8d7fe0acba0070badab0685173a1e4f324
 cpu: false                                                  # run only on CPU (not supported now)
 load:                                                       # load checkpoint from filename
 resume: false                                               # resume training (true for latest checkpoint, or number for specific epoch number)
 output_root: output                                         # root path for output files (checkpoints and results)
 
 scannerf:
-    N_obj: 1                                                 # Number of foreground object as a prior
-
+    N_obj: 1                                                # Number of foreground object as a prior
+    N_block: 10                                             # Number of cascadal blocks                                             
+    
 data:                                                       # data options
     dataset: static_blender                                 # dataset name
     scene: calendar                                         # scene name
@@ -118,4 +123,8 @@ trimesh:                                                    # options for marchi
 barf_c2f:                                                   # coarse-to-fine scheduling on positional encoding
 
 viz:
+<<<<<<< HEAD
     sample_image_idx: [1, 33, 66]
+=======
+    sample_image_idx: [1, 5, 8]
+>>>>>>> 9f450f8d7fe0acba0070badab0685173a1e4f324
