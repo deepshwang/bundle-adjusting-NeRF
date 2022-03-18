@@ -130,9 +130,9 @@ dmypy.json
 .pyre/
 
 output/
+run_files/
 data/blender/
 data/llff/
 external/
 __MACOSX/
 .idea/
-

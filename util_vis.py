@@ -269,7 +269,7 @@ def plot_object_poses_as_coordinates(fig, pose, step):
     _, cam = get_pose_coord_mesh(pose)
     cam = cam.numpy()
     # set up plot window(s)
-    plt.title("Iteration {}".format(step))
+    plt.title("RGB Render")
 
     ax1 = fig.add_subplot(121, projection="3d")
     ax2 = fig.add_subplot(122, projection="3d")

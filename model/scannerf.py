@@ -14,7 +14,7 @@ from math import log2
 #from kornia.filters import filter2D
 import importlib
 import wandb
-
+import ipdb
 import util, util_vis
 from util import log, debug
 from . import nerf
@@ -51,8 +51,7 @@ class Model():
         graph = importlib.import_module("model.{}".format(opt.model))
         log.info("building networks...")
         self.graph = graph.Graph(opt).to(opt.device)
-        self.graph.se3_refine = torch.nn.Embedding(len(self.train_data), 6).to(opt.device)
-        torch.nn.init.zeros_(self.graph.se3_refine.weight)
+        self.graph.latent_pose = torch.nn.Embedding(len(self.train_data), opt.scannerf.dim_latent_pose).to(opt.device)
 
     def load_dataset(self, opt, eval_split="val"):
         data = importlib.import_module("data.{}".format(opt.data.dataset))
@@ -82,7 +81,8 @@ class Model():
         """
         Parameters for optimization
             - NeRF model: 2 * (N_obj + 1) number of models
-            - Pose parameters: (6 * N_obj * number of frames) number of parameters
+            - Pose embedder: Maps latent pose to se(3) \in R^{6}
+            - Latent pose: (N_obj * number of frames * dim_latent_pose) number of parameters
             - Latent code: N_obj * dim_latent
         """
         # NeRF network optimizers
@@ -98,9 +98,21 @@ class Model():
             kwargs = {k: v for k, v in opt.optim.sched.items() if k != "type"}
             self.sched = scheduler(self.optim, **kwargs)
 
-        # Pose optimizers
+        # Pose embedder optimizers
         optimizer = getattr(torch.optim, opt.optim.algo)
-        self.optim_pose = optimizer([dict(params=self.graph.se3_refine.parameters(), lr=opt.optim.lr_pose)])
+        self.optim_pose_embedder = optimizer([dict(params=self.graph.pose_embedder.parameters(), lr=opt.optim.lr_pose_embedder)])
+         # set up scheduler
+        if opt.optim.sched_pose_embedder:
+            scheduler = getattr(torch.optim.lr_scheduler, opt.optim.sched_pose_embedder.type)
+            if opt.optim.lr_pose_embedder_end:
+                assert (opt.optim.sched_pose_embedder.type == "ExponentialLR")
+                opt.optim.sched_pose_embedder.gamma = (opt.optim.lr_pose_embedder_end / opt.optim.lr_pose_embedder) ** (1. / opt.max_iter)
+            kwargs = {k: v for k, v in opt.optim.sched_pose_embedder.items() if k != "type"}
+            self.sched_pose_embedder = scheduler(self.optim_pose_embedder, **kwargs)
+
+        # Latent pose optimizers
+        optimizer = getattr(torch.optim, opt.optim.algo)
+        self.optim_pose = optimizer([dict(params=self.graph.latent_pose.parameters(), lr=opt.optim.lr_pose)])
         # set up scheduler
         if opt.optim.sched_pose:
             scheduler = getattr(torch.optim.lr_scheduler, opt.optim.sched_pose.type)
@@ -124,26 +136,36 @@ class Model():
 
     def train(self, opt):
         # before training
-        log.title("TRAINING START")
-        self.timer = edict(start=time.time(), it_mean=None)
-        self.graph.train()
+        #log.title("TRAINING START")
+        #self.timer = edict(start=time.time(), it_mean=None)
+        #self.graph.train()
         self.ep = 0  # dummy for timer
         # training
         loader = tqdm.trange(opt.max_iter, desc="training", leave=False)
-        for self.it in loader:
-            if self.it < self.iter_start:
-                continue
-            # set var to all available images (NOTE: For stricter control of annealing schedule...?)
-            var = self.train_data.all
-            self.train_iteration(opt, var, loader)
-            if self.it % opt.freq.ckpt == 0:
-                self.save_checkpoint(opt, it=self.it)
-        log.title("TRAINING DONE")
+        var = self.train_data.all
+        for b in range(opt.scannerf.N_block):
+            in_idx = (b+1) * len(self.train_data) // opt.scannerf.N_block
+            var_in = edict()
+            for k in var.keys(): var_in[k] = var[k][:in_idx]
+            var_in.block = b
+            for self.it in loader:
+                if self.it < self.iter_start:
+                    continue
+                # set var to all available images (NOTE: For stricter control of annealing schedule...?)
+                self.visualize(opt, var, sample_image_idx=opt.viz.sample_image_idx, step=self.it + 1)
+                ipdb.set_trace()
+                self.train_iteration(opt, var_in, loader)
+                if self.it % opt.freq.ckpt == 0:
+                    self.save_checkpoint(opt, it=self.it)
+            log.title("TRAINING DONE for {}th block".format(b))
+            if b == 0:
+                return
 
     # WORKING
     def train_iteration(self, opt, var, loader):
         # zero-grad optimizers
         self.optim.zero_grad()
+        self.optim_pose_embedder.zero_grad()
         self.optim_pose.zero_grad()
         self.optim_latent.zero_grad()
 
@@ -169,6 +191,11 @@ class Model():
         if opt.optim.sched:
             self.sched.step()
 
+        # Proceced pose embedder optimizer schedules
+        self.optim_pose_embedder.step()
+        if opt.optim.sched_pose_embedder:
+            self.sched_pose_embedder.step()
+
         # Proceed pose optimizer schedules
         self.optim_pose.step()
         if opt.optim.sched_pose:
@@ -193,7 +220,6 @@ class Model():
         # Visualize current performance
         if (self.it + 1) % opt.freq.vis == 0 and opt.wandb:
             self.visualize(opt, var, sample_image_idx=opt.viz.sample_image_idx, step=self.it + 1)
-            print("debug")
         loader.set_postfix(it=self.it, loss="{:.3f}".format(loss.all))
         self.timer.it_end = time.time()
         util.update_timer(opt, self.timer, self.ep, len(loader))
@@ -233,6 +259,9 @@ class Model():
             # Log network learning rate
             lr = self.optim.param_groups[0]["lr"]
             log_dict["{}/{}".format(split, "lr")] = lr
+            # log pose embedder learning rate
+            lr_pose_embedder = self.optim_pose_embedder.param_groups[0]["lr"]
+            log_dict["{}/{}".format(split, "lr_pose_embedder")] = lr_pose_embedder
             # log pose learning rate
             lr_pose = self.optim_pose.param_groups[0]["lr"]
             log_dict["{}/{}".format(split, "lr_pose")] = lr_pose
@@ -256,7 +285,9 @@ class Model():
 
         ### Visualize learned poses ###
         # Retrieve learned pose from graph
-        poses =self.graph.se3_refine.weight.detach().cpu()
+
+        in_idx = (var.block+1) * len(self.train_data) // opt.scannerf.N_block
+        poses = self.graph.pose_embedder(self.graph.latent_pose.weight[:in_idx]).detach().cpu()
         poses = camera.lie.se3_to_SE3(poses)
 
         # Visualize pose
@@ -399,8 +430,8 @@ class Graph(base.Graph):
         self.world_pose = torch.eye(3, 4).to(opt.device)
         ### Models / trainable parameters ###
         self.scannerf = torch.nn.ModuleList(2 * [nerf.NeRF(opt)] + 2 * self.N_obj * [CondNeRF(opt)])
-        # self.renderer = NeuralRenderer()
         self.latent = torch.nn.Embedding(self.N_obj, opt.arch.dim_latent).to(opt.device)
+        self.pose_embedder = self.define_pose_embedder(opt)
 
     def forward(self, opt, var, sample_image_idx=None, mode=None):
         # sample random rays for optimization
@@ -448,8 +479,8 @@ class Graph(base.Graph):
         for i in range(self.N_obj + 1):
             # Background object: normal NeRF rendering
             if i == 0:
-                rgb_samples, density_samples = self.scannerf[2 * i].forward_samples(opt, center, ray, depth_samples,
-                                                                                    mode=mode)
+                continue
+                #rgb_samples, density_samples = self.scannerf[2 * i].forward_samples(opt, center, ray, depth_samples,                                                                   mode=mode)
 
             # Foreground objects: bundle adjusting pose and conditional nerf
             else:
@@ -546,12 +577,11 @@ class Graph(base.Graph):
         if mode in ["train", "val"]:
             # add learnable pose correction
             if sample_image_idx is None:
-                var.se3_refine = self.se3_refine.weight[var.idx]
+                var.latent_pose = self.latent_pose.weight[var.idx]
             else:
-                var.se3_refine = self.se3_refine.weight[sample_image_idx]
-            # 0th frames' object pose is initialized as fixed hyperparameter
-            pose = camera.lie.se3_to_SE3(var.se3_refine)
-            # pose[var.idx == 0] = self.obj_pose_init
+                var.latent_pose = self.latent_pose.weight[sample_image_idx]
+            se3 = self.pose_embedder(var.latent_pose)
+            pose = camera.lie.se3_to_SE3(se3)
         elif mode in ["eval", "test-optim"]:
             # align test pose to refined coordinate system (up to sim3)
             sim3 = self.sim3
@@ -565,7 +595,7 @@ class Graph(base.Graph):
             if opt.optim.test_photo:
                 pose = camera.pose.compose([var.pose_refine_test, pose])
         else:
-            pose = var.pose
+            pose = camera.lie.se3_to_SE3(self.pose_embedder(var.latent_pose))
         return pose
 
     def composite(self, opt, ray, rgb_samples, density_samples, depth_samples, prob_only=False):
@@ -589,6 +619,16 @@ class Graph(base.Graph):
         if opt.nerf.setbg_opaque:
             rgb = rgb + opt.data.bgcolor * (1 - opacity)
         return rgb, depth, opacity, prob  # [B,HW,K]
+
+    def define_pose_embedder(self, opt):
+        layers = []
+        layers_config = opt.scannerf.pose_embedder_layers
+        for d_in, d_out in zip(layers_config[:-1], layers_config[1:]):
+            if d_in == None: d_in = opt.scannerf.dim_latent_pose
+            layers += [torch.nn.Linear(d_in, d_out), torch.nn.ReLU()]
+        # zero-out the last layer's parameter to initialize with identity transformation.
+        layers[-2].weight.data.fill_(1e-5)
+        return torch.nn.Sequential(*layers)
 
     def compute_loss(self, opt, var, mode=None):
         loss = edict()
