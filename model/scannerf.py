@@ -479,8 +479,7 @@ class Graph(base.Graph):
         for i in range(self.N_obj + 1):
             # Background object: normal NeRF rendering
             if i == 0:
-                continue
-                #rgb_samples, density_samples = self.scannerf[2 * i].forward_samples(opt, center, ray, depth_samples,                                                                   mode=mode)
+                rgb_samples, density_samples = self.scannerf[2 * i].forward_samples(opt, center, ray, depth_samples, mode=mode)
 
             # Foreground objects: bundle adjusting pose and conditional nerf
             else:
@@ -489,8 +488,8 @@ class Graph(base.Graph):
                                                                                     depth_samples, latent, pose,
                                                                                     mode=mode)
 
-            composite_rgb_samples += rgb_samples / (self.N_obj + 1)
-            composite_density_samples += density_samples / (self.N_obj + 1)
+            composite_rgb_samples += rgb_samples
+            composite_density_samples += density_samples
             prob = self.composite(opt, ray, rgb_samples, density_samples, depth_samples, prob_only=True)
 
             if opt.nerf.fine_sampling:
@@ -511,11 +510,12 @@ class Graph(base.Graph):
                                                                                                 latent,
                                                                                                 pose,
                                                                                                 mode=mode)
-                    composite_rgb_samples_fine += rgb_samples / (self.N_obj + 1)
-                    composite_density_samples_fine += density_samples / (self.N_obj + 1)
+                    composite_rgb_samples_fine += rgb_samples
+                    composite_density_samples_fine += density_samples
 
         rgb, depth, opacity, prob = self.composite(opt, ray, composite_rgb_samples, composite_density_samples,
                                                    depth_samples)
+
         rgb_fine, depth_fine, opacity_fine, prob_fine = self.composite(opt, ray, composite_rgb_samples_fine,
                                                                        composite_density_samples_fine,
                                                                        depth_samples_fine)
