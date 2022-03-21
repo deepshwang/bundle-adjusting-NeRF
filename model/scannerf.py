@@ -130,19 +130,6 @@ class Model():
         self.ep = 0  # dummy for timer
         # training
         loader = tqdm.trange(opt.max_iter, desc="training", leave=False)
-<<<<<<< HEAD
-        for self.it in loader:
-            #if self.it < self.iter_start:
-            #    continue
-            # set var to all available images (NOTE: For stricter control of annealing schedule...?)
-            var = self.train_data.all
-            self.visualize(opt, var, sample_image_idx=opt.viz.sample_image_idx, step=self.it + 1)
-            ipdb.set_trace()
-            self.train_iteration(opt, var, loader)
-            if self.it % opt.freq.ckpt == 0:
-                self.save_checkpoint(opt, it=self.it)
-        log.title("TRAINING DONE")
-=======
         var = self.train_data.all
         for b in range(opt.scannerf.N_block):
             in_idx = (b+1) * len(self.train_data) // opt.scannerf.N_block
@@ -159,7 +146,6 @@ class Model():
             log.title("TRAINING DONE for {}th block".format(b))
             if b == 0:
                 return
->>>>>>> 9f450f8d7fe0acba0070badab0685173a1e4f324
 
     # WORKING
     def train_iteration(self, opt, var, loader):
@@ -470,8 +456,6 @@ class Graph(base.Graph):
 
         for i in range(self.N_obj + 1):
             if i == 0:
-                #rgb_samples = 0
-                #density_samples = 0
                 rgb_samples, density_samples = self.scannerf[2 * i].forward_samples(opt, center, ray,
                                                                                     depth_samples,
                                                                                     mode=mode)
@@ -479,15 +463,13 @@ class Graph(base.Graph):
 
             # Foreground objects: bundle adjusting pose and conditional nerf
             else:
-                rgb_samples=0
-                density_samples=0
                 latent = self.latent.weight[i - 1]
-                # rgb_samples, density_samples = self.scannerf[2 * i].forward_samples(opt, center, ray,
-                #                                                                    depth_samples, latent, pose,
-                #                                                                    mode=mode)
+                rgb_samples, density_samples = self.scannerf[2 * i].forward_samples(opt, center, ray,
+                                                                                    depth_samples, latent, pose,
+                                                                                    mode=mode)
 
-            composite_rgb_samples += rgb_samples / (self.N_obj)
-            composite_density_samples += density_samples / (self.N_obj)
+            composite_rgb_samples += rgb_samples / (self.N_obj + 1)
+            composite_density_samples += density_samples / (self.N_obj + 1)
             prob = self.composite(opt, ray, rgb_samples, density_samples, depth_samples, prob_only=True)
 
             if opt.nerf.fine_sampling:
