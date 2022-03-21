@@ -476,7 +476,7 @@ class Graph(base.Graph):
         # WORKING => condnerf.forward_samples
         # Compositional Rendering with learned-pose adjusted inference
         depth_samples = self.sample_depth(opt, batch_size, num_rays=ray.shape[1])  # [B, n_rays, n_samples, 1]
-        bg_depth_samples = self.sample_depth(opt, batch_size, num_rays = ray.shape[1], background=True)
+        bg_depth_samples = self.sample_depth(opt, batch_size, num_rays=ray.shape[1], background=True)
         composite_rgb_samples = []
         composite_density_samples = []
         composite_rgb_samples_fine = []
