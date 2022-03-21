@@ -1,5 +1,5 @@
 wandb: true
-project: scannerf-debug-visualize
+project: scannerf-v4
 model: scannerf
 max_iter: 400000                                            # train to maximum number of iterations
 # Desired image size
@@ -16,7 +16,7 @@ freq:                                                       # periodic actions d
 group:                                                      # name of experiment group
 name:                                                       # name of experiment run
 seed: 0                                                     # seed number (for both numpy and pytorch)
-gpu: 7                                                      # GPU index number
+gpu: 5                                                      # GPU index number
 cpu: false                                                  # run only on CPU (not supported now)
 load:                                                       # load checkpoint from filename
 resume: true                                                # resume training (true for latest checkpoint, or number for specific epoch number)
