@@ -424,8 +424,8 @@ class Graph(base.Graph):
         var.update(ret)
         return var
 
-    def sample_planar_rays(self, opt):
-        rand_h = torch.rand(opt.H)
+    def sample_epipolar_rays(self, opt):
+        rand_h = torch.randint(opt.H)
 
 
     def render(self, opt, pose, latent, sample_image_idx=None, intr=None, ray_idx=None, mode=None):
