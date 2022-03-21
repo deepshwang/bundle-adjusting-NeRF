@@ -135,12 +135,12 @@ class Model():
             in_idx = (b+1) * len(self.train_data) // opt.scannerf.N_block
             var_in = edict()
             for k in var.keys(): var_in[k] = var[k][:in_idx]
-            var.block = b
+            var_in.block = b
             for self.it in loader:
                 if self.it < self.iter_start:
                     continue
                 # set var to all available images (NOTE: For stricter control of annealing schedule...?)
-                self.train_iteration(opt, var, loader)
+                self.train_iteration(opt, var_in, loader)
                 if self.it % opt.freq.ckpt == 0:
                     self.save_checkpoint(opt, it=self.it)
             log.title("TRAINING DONE for {}th block".format(b))
