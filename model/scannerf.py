@@ -201,7 +201,6 @@ class Model():
         # Visualize current performance
         if (self.it + 1) % opt.freq.vis == 0 and opt.wandb:
             self.visualize(opt, var, sample_image_idx=opt.viz.sample_image_idx, step=self.it + 1)
-            print("debug")
         loader.set_postfix(it=self.it, loss="{:.3f}".format(loss.all))
         self.timer.it_end = time.time()
         util.update_timer(opt, self.timer, self.ep, len(loader))
@@ -266,7 +265,6 @@ class Model():
         # Retrieve learned pose from graph
         poses = self.graph.se3_refine.weight.detach().cpu()
         poses = camera.lie.se3_to_SE3(poses)
-        poses = camera.pose.cascadal_compose(poses)
 
         # Visualize pose
         fig = plt.figure(figsize=(20, 10))
@@ -711,7 +709,6 @@ class CondNeRF(torch.nn.Module):
         # [B, n_rays, n_samples, 4]
         # Rigid transformation of points with learned pose
 
-        pose = camera.pose.cascadal_compose(pose)
         points_3D_samples = camera.world2cam(points_3D_samples, pose[:, None, ...])
         latent = latent[None, None, None, :].expand(points_3D_samples.shape[0], points_3D_samples.shape[1],
                                                     points_3D_samples.shape[2], -1)

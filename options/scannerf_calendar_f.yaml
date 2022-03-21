@@ -67,7 +67,7 @@ nerf:                                                       # NeRF-specific opti
     sample_intvs_fine: 64                                   # number of samples for the fine NeRF
     sample_stratified: true                                 # stratified sampling
     fine_sampling: true                                     # hierarchical sampling with another NeRF
-    rand_rays: 16                                          # number of random rays for each step
+    rand_rays: 32                                          # number of random rays for each step
     val_rand_rays: 1024                                     # Number of rays for visual validations
     density_noise_reg:                                      # Gaussian noise on density output as regularization
     setbg_opaque: false                                     # fill transparent rendering with known background color (Blender only)
