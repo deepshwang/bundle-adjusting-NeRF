@@ -189,9 +189,9 @@ class Model():
 
         # Track positional encoding annealing parameter (BARF)
         for i in range(self.graph.N_obj):
-            self.graph.scannerf[2 * (i + 1)].progress.data.fill_(self.it / opt.max_iter)
+            self.graph.scannerf[2 * (i + 1) -1].progress.data.fill_(self.it / opt.max_iter)
             if opt.nerf.fine_sampling:
-                self.graph.scannerf[2 * (i + 1) + 1].progress.data.fill_(self.it / opt.max_iter)
+                self.graph.scannerf[2 * (i + 1)].progress.data.fill_(self.it / opt.max_iter)
 
         # Record Scalars (loss / learning rate)
         if (self.it + 1) % opt.freq.scalar == 0 and opt.wandb:
@@ -405,7 +405,7 @@ class Graph(base.Graph):
         # In ScanNeRF, camera pose is set as global pose (eye(4))
         self.world_pose = torch.eye(3, 4).to(opt.device)
         ### Models / trainable parameters ###
-        self.scannerf = torch.nn.ModuleList(2 * [nerf.NeRF(opt)] + 2 * self.N_obj * [CondNeRF(opt)])
+        self.scannerf = torch.nn.ModuleList([nerf.NeRF(opt)] + 2 * self.N_obj * [CondNeRF(opt)])
         # self.renderer = NeuralRenderer()
         self.latent = torch.nn.Embedding(self.N_obj, opt.arch.dim_latent).to(opt.device)
 
@@ -447,52 +447,58 @@ class Graph(base.Graph):
         # WORKING => condnerf.forward_samples
         # Compositional Rendering with learned-pose adjusted inference
         depth_samples = self.sample_depth(opt, batch_size, num_rays=ray.shape[1])  # [B, n_rays, n_samples, 1]
-        composite_rgb_samples = 0.0
-        composite_density_samples = 0.0
-        composite_rgb_samples_fine = 0.0
-        composite_density_samples_fine = 0.0
+        bg_depth_samples = self.sample_depth(opt, batch_size, num_rays=ray.shape[1], background=True)
+
+        composite_rgb_samples = []
+        composite_density_samples = []
+        composite_rgb_samples_fine = 0
+        composite_density_samples_fine = 0
 
         for i in range(self.N_obj + 1):
             if i == 0:
                 rgb_samples, density_samples = self.scannerf[2 * i].forward_samples(opt, center, ray,
-                                                                                    depth_samples,
+                                                                                    bg_depth_samples,
                                                                                     mode=mode)
 
 
             # Foreground objects: bundle adjusting pose and conditional nerf
             else:
                 latent = self.latent.weight[i - 1]
-                rgb_samples, density_samples = self.scannerf[2 * i].forward_samples(opt, center, ray,
+                rgb_samples, density_samples = self.scannerf[2 * i - 1].forward_samples(opt, center, ray,
                                                                                     depth_samples, latent, pose,
                                                                                     mode=mode)
 
-            composite_rgb_samples += rgb_samples / (self.N_obj + 1)
-            composite_density_samples += density_samples / (self.N_obj + 1)
-            prob = self.composite(opt, ray, rgb_samples, density_samples, depth_samples, prob_only=True)
+            composite_rgb_samples = [rgb_samples] + composite_rgb_samples
+            composite_density_samples = [density_samples] + composite_density_samples
+            if i!=0: prob = self.composite(opt, ray, rgb_samples, density_samples, depth_samples, prob_only=True)
 
             if opt.nerf.fine_sampling:
                 with torch.no_grad():
-                    # resample depth acoording to coarse empirical distribution
-                    depth_samples_fine = self.sample_depth_from_pdf(opt, batch_size, pdf=prob[..., 0])  # [B,HW,Nf,1]
-                    depth_samples_fine = torch.cat([depth_samples.expand([depth_samples_fine.shape[0], -1, -1, -1]),
-                                                    depth_samples_fine], dim=2)  # [B,HW,N+Nf,1]
-                    depth_samples_fine = depth_samples_fine.sort(dim=2).values
                     if i == 0:
-                        rgb_samples, density_samples = self.scannerf[2 * i + 1].forward_samples(opt, center, ray,
-                                                                                                depth_samples_fine,
-                                                                                                mode=mode)
-                    # Foreground objects: bundle adjusting pose and conditional nerf
+                        pass
+                        # Foreground objects: bundle adjusting pose and conditional nerf
                     else:
-                        rgb_samples, density_samples = self.scannerf[2 * i + 1].forward_samples(opt, center, ray,
+                        # resample depth acoording to coarse empirical distribution
+                        depth_samples_fine = self.sample_depth_from_pdf(opt, batch_size, pdf=prob[..., 0])  # [B,HW,Nf,1]
+                        depth_samples_fine = torch.cat([depth_samples.expand([depth_samples_fine.shape[0], -1, -1, -1]),
+                                                                              depth_samples_fine], dim=2)  # [B,HW,N+Nf,1]
+                        depth_samples_fine = depth_samples_fine.sort(dim=2).values
+
+                        rgb_samples, density_samples = self.scannerf[2 * i].forward_samples(opt, center, ray,
                                                                                                 depth_samples_fine,
                                                                                                 latent,
                                                                                                 pose,
                                                                                                 mode=mode)
-                    composite_rgb_samples_fine += rgb_samples / (self.N_obj + 1)
-                    composite_density_samples_fine += density_samples / (self.N_obj + 1)
+                        composite_rgb_samples_fine += rgb_samples
+                        composite_density_samples_fine += density_samples
+
+
+        composite_rgb_samples = torch.cat(tuple(composite_rgb_samples), dim=2)
+        composite_density_samples = torch.cat(tuple(composite_density_samples), dim=2)
+        composite_depth_samples = torch.cat((depth_samples, bg_depth_samples), dim=2)
 
         rgb, depth, opacity, prob = self.composite(opt, ray, composite_rgb_samples, composite_density_samples,
-                                                   depth_samples)
+                                                   composite_depth_samples)
         rgb_fine, depth_fine, opacity_fine, prob_fine = self.composite(opt, ray, composite_rgb_samples_fine,
                                                                        composite_density_samples_fine,
                                                                        depth_samples_fine)
@@ -515,8 +521,10 @@ class Graph(base.Graph):
         for k in ret_all: ret_all[k] = torch.cat(ret_all[k], dim=1)
         return ret_all
 
-    def sample_depth(self, opt, batch_size, num_rays=None):
+    def sample_depth(self, opt, batch_size, num_rays=None, background=False):
         depth_min, depth_max = opt.nerf.depth.range
+        if background:
+            depth_min, depth_max = opt.nerf.depth.bg_range
         num_rays = num_rays or opt.H * opt.W
         rand_samples = torch.rand(batch_size, num_rays, opt.nerf.sample_intvs, 1, device=opt.device) \
             if opt.nerf.sample_stratified else 0.5
@@ -529,8 +537,10 @@ class Graph(base.Graph):
         )[opt.nerf.depth.param]
         return depth_samples
 
-    def sample_depth_from_pdf(self, opt, batch_size, pdf):
+    def sample_depth_from_pdf(self, opt, batch_size, pdf, background=False):
         depth_min, depth_max = opt.nerf.depth.range
+        if background:
+            depth_min, depth_max = opt.nerf.depth.bg_range
         # get CDF from PDF (along last dimension)
         cdf = pdf.cumsum(dim=-1)  # [B,HW,N]
         cdf = torch.cat([torch.zeros_like(cdf[..., :1]), cdf], dim=-1)  # [B,HW,N+1]
@@ -609,7 +619,8 @@ class Graph(base.Graph):
             loss.render = self.MSE_loss(var.rgb, image)
         if opt.loss_weight.render_fine is not None:
             assert opt.nerf.fine_sampling
-            loss.render_fine = self.MSE_loss(var.rgb_fine, image)
+            #loss.render_fine = self.MSE_loss(var.rgb_fine, image)
+            loss.render_fine = torch.zeros(loss.render.shape)
         return loss
 
 

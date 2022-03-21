@@ -25,7 +25,7 @@ output_root: output                                         # root path for outp
 scannerf:
     N_obj: 1                                                # Number of foreground object as a prior
     N_block: 10                                             # Number of cascadal block steps for CFT
-
+    
 data:                                                       # data options
     dataset: static_blender                                 # dataset name
     scene: calendar_dense                                   # scene name
@@ -62,7 +62,8 @@ nerf:                                                       # NeRF-specific opti
     view_dep: true                                          # condition MLP on viewpoint
     depth:                                                  # depth-related options
         param: metric                                       # depth parametrization (for sampling along the ray)
-        range: [0.2,2]                                        # near/far bounds for depth sampling
+        range: [1, 5]                                        # near/far bounds for depth sampling
+        bg_range: [5, 7]
     sample_intvs: 128                                       # number of samples
     sample_intvs_fine: 64                                   # number of samples for the fine NeRF
     sample_stratified: true                                 # stratified sampling
