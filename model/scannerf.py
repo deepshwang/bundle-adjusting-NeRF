@@ -486,6 +486,10 @@ class Graph(base.Graph):
             for i in range(self.N_obj + 1):
                 # Background object: normal NeRF rendering
                 if i == 0:
+                    # No background_output
+                    #B, num_rays, num_samples, _ = depth_samples.shape
+                    #rgb_samples, density_samples = torch.zeros(B, num_rays, num_samples, 3), torch.zeros(B, num_rays, num_samples, 1)
+                    # Add background output
                     rgb_samples, density_samples = self.scannerf[2 * i].forward_samples(opt, center, ray, bg_depth_samples, mode=mode)
                 # Foreground objects: bundle adjusting pose and conditional nerf
                 else:
@@ -505,6 +509,7 @@ class Graph(base.Graph):
                         # No fine sampling for background.
                         # Foreground objects: bundle adjusting pose and conditional nerf
                         if i == 0:
+                            # Add background output (fine)
                             bg_depth_samples_fine = self.sample_depth_from_pdf(opt, batch_size, pdf=prob[..., 0], background=True)  # [B,HW,Nf,1]
                             bg_depth_samples_fine = torch.cat([bg_depth_samples, bg_depth_samples_fine], dim=2)  # [B,HW,N+Nf,1]
                             bg_depth_samples_fine = bg_depth_samples_fine.sort(dim=2).values
@@ -524,14 +529,24 @@ class Graph(base.Graph):
                         composite_rgb_samples_fine = [rgb_samples_fine] + composite_rgb_samples_fine
                         composite_density_samples_fine = [density_samples_fine] + composite_density_samples_fine
 
-            # Put coarse samples into a single set of rays
-            composite_rgb_samples = torch.cat(tuple(composite_rgb_samples), 2)
-            composite_density_samples = torch.cat(tuple(composite_density_samples), 2)
-            composite_depth_samples = torch.cat((depth_samples, bg_depth_samples), 2)
+            # Get only one output
+            composite_rgb_samples = composite_rgb_samples[0]
+            composite_density_samples = composite_density_samples[0]
+            composite_depth_samples = depth_samples
 
-            composite_rgb_samples_fine = torch.cat(tuple(composite_rgb_samples_fine), 2)
-            composite_density_samples_fine = torch.cat(tuple(composite_density_samples_fine), 2)
-            composite_depth_samples_fine = torch.cat((depth_samples_fine, bg_depth_samples_fine), 2)
+            composite_rgb_samples_fine = composite_rgb_samples_fine[0]
+            composite_density_samples_fine = composite_density_samples_fine[0]
+            composite_depth_samples_fine = depth_samples_fine
+
+
+            # Put coarse samples into a single set of rays
+            #composite_rgb_samples = torch.cat(tuple(composite_rgb_samples), 2)
+            #composite_density_samples = torch.cat(tuple(composite_density_samples), 2)
+            #composite_depth_samples = torch.cat((depth_samples, bg_depth_samples), 2)
+
+            #composite_rgb_samples_fine = torch.cat(tuple(composite_rgb_samples_fine), 2)
+            #composite_density_samples_fine = torch.cat(tuple(composite_density_samples_fine), 2)
+            #composite_depth_samples_fine = torch.cat((depth_samples_fine, bg_depth_samples_fine), 2)
 
             rgb, depth, opacity, prob = self.composite(opt, ray, composite_rgb_samples, composite_density_samples,
                                                        composite_depth_samples)
@@ -539,6 +554,7 @@ class Graph(base.Graph):
             rgb_fine, depth_fine, opacity_fine, prob_fine = self.composite(opt, ray, composite_rgb_samples_fine,
                                                                            composite_density_samples_fine,
                                                                            composite_depth_samples_fine)
+            ipdb.set_trace()
             return edict(rgb=rgb, depth=depth, opacity=opacity,
                          rgb_fine=rgb_fine, depth_fine=depth_fine, opacity_fine=opacity_fine)  # [B,HW,K]
 
@@ -625,8 +641,7 @@ class Graph(base.Graph):
         ray_length = ray.norm(dim=-1, keepdim=True)  # [B,HW,1]
         # volume rendering: compute probability (using quadrature)
         depth_intv_samples = depth_samples[..., 1:, 0] - depth_samples[..., :-1, 0]  # [B,HW,N-1]
-        depth_intv_samples = torch.cat([depth_intv_samples, torch.empty_like(depth_intv_samples[..., :1]).fill_(1e10)],
-                                       dim=2)  # [B,HW,N]
+        depth_intv_samples = torch.cat([depth_intv_samples, torch.empty_like(depth_intv_samples[..., :1]).fill_(1e10)], dim=2)  # [B,HW,N]
         dist_samples = depth_intv_samples * ray_length  # [B,HW,N]
         sigma_delta = density_samples * dist_samples  # [B,HW,N]
         alpha = 1 - (-sigma_delta).exp_()  # [B,HW,N]
