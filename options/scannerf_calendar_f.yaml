@@ -1,4 +1,4 @@
-wandb: false
+wandb: true
 project: scannerf-v4
 model: scannerf
 max_iter: 400000                                            # train to maximum number of iterations
