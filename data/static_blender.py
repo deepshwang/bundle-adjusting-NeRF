@@ -25,9 +25,11 @@ class Dataset(base.Dataset):
         self.focal = opt.camera.focal
         self.imgfiles = self.get_imagefiles()
         if subset: self.imgfiles = self.imgfiles[:subset]
+        self.bg_imgfile = self.path + "/background.jpg" if os.path.exists(self.path+"/background.jpg") else None
         # preload dataset
         if opt.data.preload:
             self.images = self.preload_threading(opt, self.get_image)
+            self.bg_image = self.get_bg_image(opt)
 
     def prefetch_all_data(self, opt):
         assert (not opt.data.augment)
@@ -45,12 +47,18 @@ class Dataset(base.Dataset):
         aug = self.generate_augmentation(opt) if self.augment else None
         image = self.images[idx] if opt.data.preload else self.get_image(opt, idx)
         image = self.preprocess_image(opt, image, aug=aug)
+        if self.bg_image is not None:
+            bg_image = self.preprocess_image(opt, self.bg_image, aug=aug)
+            obj_mask = torch.where(torch.abs(torch.norm(image - bg_image, dim=0)) > self.opt.scannerf.mask_thresh,
+                                   self.opt.scannerf.obj_weight,
+                                   self.opt.scannerf.bg_weight)
+            obj_mask = obj_mask[None, ...]
         intr = self.get_camera(opt)
-        intr = self.preprocess_camera(opt, intr, pose=None, aug=aug)
-        sample.update(
-            image=image,
-            intr=intr
-        )
+        intr= self.preprocess_camera(opt, intr, pose=None, aug=aug)
+        if bg_image is not None:
+            sample.update(image=image, bg_image=bg_image, obj_mask=obj_mask, intr=intr)
+        else:
+            sample.update(image=image, intr=intr)
         return sample
 
     def get_imagefiles(self):
@@ -63,6 +71,13 @@ class Dataset(base.Dataset):
         image = PIL.Image.fromarray(
             imageio.imread(self.imgfiles[idx]))  # directly using PIL.Image.open() leads to weird corruption....
         return image
+    def get_bg_image(self, opt):
+        if self.bg_imgfile is not None:
+            bg_image = PIL.Image.fromarray(imageio.imread(self.bg_imgfile))
+        else:
+            bg_image = None
+        return bg_image
+
 
     def preprocess_image(self, opt, image, aug=None):
         image = super().preprocess_image(opt, image, aug=aug)

@@ -21,7 +21,7 @@ from . import nerf
 from . import base
 import camera
 import itertools
-
+from PIL import Image
 
 # ============================ main engine for training and evaluation ============================
 
@@ -61,9 +61,9 @@ class Model():
         self.train_loader = self.train_data.setup_loader(opt, shuffle=True)
         self.train_data.prefetch_all_data(opt)
         self.train_data.all = edict(util.move_to_device(self.train_data.all,opt.device))
-        log.info("loading test data...")
-        self.test_data = data.Dataset(opt, split="val")
-        self.test_loader = self.test_data.setup_loader(opt, shuffle=False)
+        #log.info("loading test data...")
+        #self.test_data = data.Dataset(opt, split="val")
+        #self.test_loader = self.test_data.setup_loader(opt, shuffle=False)
 
     def restore_checkpoint(self, opt):
         epoch_start, iter_start = None, None
@@ -136,6 +136,13 @@ class Model():
             var_in = edict()
             for k in var.keys(): var_in[k] = var[k][:in_idx]
             var_in.block = b
+            im = Image.fromarray(np.uint8(255*np.squeeze(var_in.obj_mask[0].cpu().detach().numpy())))
+            im.save("test.jpg")
+            ipdb.set_trace()
+            if opt.resume:
+                log.title("CONDUCTING VISUALIZATION ONLY")
+                self.visualize(opt, var_in, sample_image_idx=opt.viz.sample_image_idx, step=1)
+                return
             for self.it in loader:
                 if self.it < self.iter_start:
                     continue
@@ -165,7 +172,7 @@ class Model():
         # Forward network & calculate loss g
         # before train iteration
         self.timer.it_start = time.time()
-        var = self.graph.forward(opt, var, mode="train")
+        var = self.graph.forward(opt, var, mode="train", it=self.it)
         loss = self.graph.compute_loss(opt, var, mode="train")
         loss = self.summarize_loss(opt, loss)
         loss.all.backward()
@@ -189,9 +196,9 @@ class Model():
 
         # Track positional encoding annealing parameter (BARF)
         for i in range(self.graph.N_obj):
-            self.graph.scannerf[2 * (i + 1) -1].progress.data.fill_(self.it / opt.max_iter)
+            self.graph.scannerf[i].progress.data.fill_(self.it / opt.max_iter)
             if opt.nerf.fine_sampling:
-                self.graph.scannerf[2 * (i + 1)].progress.data.fill_(self.it / opt.max_iter)
+                self.graph.scannerf[i+1].progress.data.fill_(self.it / opt.max_iter)
 
         # Record Scalars (loss / learning rate)
         if (self.it + 1) % opt.freq.scalar == 0 and opt.wandb:
@@ -253,14 +260,17 @@ class Model():
     def visualize(self, opt, var, sample_image_idx=None, step=0, eps=1e-6):
         self.graph.eval()
         var = self.graph.forward(opt, var, sample_image_idx=sample_image_idx, mode="val") # Forward all images
-        invdepth = 1/(var.depth_fine/var.opacity_fine+eps)
-        rgb_map = var.rgb.view(-1,opt.H,opt.W,3).permute(0,3,1,2) # [B,3,H,W]
-        # invdepth_map = invdepth.view(-1, opt.H, opt.W, 1).permute(0, 3, 1, 2)  # [B,1,H,W]
+        coarse_rgb_map = var.rgb.view(-1,opt.H,opt.W,3).permute(0,3,1,2) # [B,3,H,W]
+        fine_rgb_map = var.rgb_fine.view(-1,opt.H,opt.W,3).permute(0,3,1,2)
+        coarse_rgb_obj_map = var.rgb_obj.view(-1,opt.H,opt.W,3).permute(0,3,1,2) # [B,3,H,W]
+        fine_rgb_obj_map = var.rgb_fine_obj.view(-1,opt.H,opt.W,3).permute(0,3,1,2)
 
+        #obj_depth_map = obj_depth_map.view(-1, opt.H, opt.W, 1).permute(0, 3, 1, 2)  # [B,1,H,W]
         ### Visualize rendered Image ###
-        wandb.log({"[Step {} / {}] RGB Image".format(step, opt.max_iter): [wandb.Image(np.transpose(t.detach().cpu().numpy(), (1, 2, 0))) for t in rgb_map]})
-        # wandb.log({"Depth Image": [t.detach().cpu().numpy()  for t in invdepth_map]})
-
+        wandb.log({"Coarse RGB Image": [wandb.Image(np.transpose(t.detach().cpu().numpy(), (1, 2, 0))) for t in coarse_rgb_map]})
+        wandb.log({"Fine RGB Image": [wandb.Image(np.transpose(t.detach().cpu().numpy(), (1, 2, 0))) for t in fine_rgb_map]})
+        wandb.log({"Coarse Object Image": [wandb.Image(np.transpose(t.detach().cpu().numpy(), (1, 2, 0))) for t in coarse_rgb_obj_map]})
+        wandb.log({"Fine Object Image": [wandb.Image(np.transpose(t.detach().cpu().numpy(), (1, 2, 0))) for t in fine_rgb_obj_map]})
         ### Visualize learned poses ###
         # Retrieve learned pose from graph
         poses = self.graph.se3_refine.weight.detach().cpu()
@@ -268,8 +278,8 @@ class Model():
 
         # Visualize pose
         fig = plt.figure(figsize=(20, 10))
-        util_vis.plot_object_poses_as_coordinates(fig, poses, step)
-        wandb.log({"Learned pose": wandb.Image(plt)})
+        util_vis.plot_object_poses_as_coordinates(fig, poses[var.idx], step)
+        wandb.log({"Learned poses": wandb.Image(plt)})
         plt.clf()
 
 
@@ -405,22 +415,23 @@ class Graph(base.Graph):
         # In ScanNeRF, camera pose is set as global pose (eye(4))
         self.world_pose = torch.eye(3, 4).to(opt.device)
         ### Models / trainable parameters ###
-        self.scannerf = torch.nn.ModuleList([nerf.NeRF(opt)] + 2 * self.N_obj * [CondNeRF(opt)])
+        self.scannerf = torch.nn.ModuleList(2 * self.N_obj * [CondNeRF(opt)])
         # self.renderer = NeuralRenderer()
         self.latent = torch.nn.Embedding(self.N_obj, opt.arch.dim_latent).to(opt.device)
 
-    def forward(self, opt, var, sample_image_idx=None, mode=None):
+    def forward(self, opt, var, sample_image_idx=None, mode=None, it=None):
         # sample random rays for optimization
         num_rand_rays = opt.nerf.rand_rays if mode == "train" else opt.nerf.val_rand_rays
+        pdb.set_trace()
         var.ray_idx = torch.randperm(opt.H * opt.W, device=opt.device)[:num_rand_rays]
 
         pose = self.get_object_pose(opt, var, sample_image_idx=sample_image_idx, mode=mode)
         # render images
         if opt.nerf.rand_rays and mode in ["train", "test-optim"]:
-            ret = self.render(opt, pose, self.latent, intr=var.intr, ray_idx=var.ray_idx, mode=mode)  # [B,N,3],[B,N,1]
+            ret = self.render(opt, pose, self.latent, var.bg_image, intr=var.intr, ray_idx=var.ray_idx, mode=mode, it=it)  # [B,N,3],[B,N,1]
         else:
             # render full image (process in slices for validations)
-            ret = self.render_by_slices(opt, pose, self.latent, sample_image_idx=sample_image_idx, intr=var.intr, mode=mode)
+            ret = self.render_by_slices(opt, pose, self.latent, var.bg_image, sample_image_idx=sample_image_idx, intr=var.intr, mode=mode)
         var.update(ret)
         return var
 
@@ -428,7 +439,7 @@ class Graph(base.Graph):
         rand_h = torch.randint(opt.H)
 
 
-    def render(self, opt, pose, latent, sample_image_idx=None, intr=None, ray_idx=None, mode=None):
+    def render(self, opt, pose, latent, bg_image, sample_image_idx=None, intr=None, ray_idx=None, mode=None, it=None):
         if sample_image_idx is None:
             batch_size = pose.shape[0]
         else:
@@ -446,96 +457,93 @@ class Graph(base.Graph):
 
         # WORKING => condnerf.forward_samples
         # Compositional Rendering with learned-pose adjusted inference
-        depth_samples = self.sample_depth(opt, batch_size, num_rays=ray.shape[1])  # [B, n_rays, n_samples, 1]
-        bg_depth_samples = self.sample_depth(opt, batch_size, num_rays=ray.shape[1], background=True)
-
-        composite_rgb_samples = []
-        composite_density_samples = []
-        composite_rgb_samples_fine = 0
-        composite_density_samples_fine = 0
-
-        for i in range(self.N_obj + 1):
-            if i == 0:
-                rgb_samples, density_samples = self.scannerf[2 * i].forward_samples(opt, center, ray,
-                                                                                    bg_depth_samples,
-                                                                                    mode=mode)
-
-
+        depth_samples, depth_samples_w_bg = self.sample_depth(opt, batch_size, num_rays=ray.shape[1])  # [B, n_rays, n_samples, 1]
+        bg_image =bg_image.view(batch_size, 3, opt.H * opt.W).permute(0, 2, 1)
+        if ray_idx is not None:
+            bg_image = bg_image[:, ray_idx, :]
+        for i in range(self.N_obj):
             # Foreground objects: bundle adjusting pose and conditional nerf
-            else:
-                latent = self.latent.weight[i - 1]
-                rgb_samples, density_samples = self.scannerf[2 * i - 1].forward_samples(opt, center, ray,
-                                                                                    depth_samples, latent, pose,
-                                                                                    mode=mode)
-
-            composite_rgb_samples = [rgb_samples] + composite_rgb_samples
-            composite_density_samples = [density_samples] + composite_density_samples
-            if i!=0: prob = self.composite(opt, ray, rgb_samples, density_samples, depth_samples, prob_only=True)
-
+            latent = self.latent.weight[i - 1]
+            rgb_samples, density_samples = self.scannerf[i].forward_samples(opt,
+                                                                            center,
+                                                                            ray,
+                                                                            depth_samples,
+                                                                            latent,
+                                                                            pose,
+                                                                            mode=mode,
+                                                                            it=it)
+            # Cat with background RGB and density
+            rgb_samples_composite = torch.cat((rgb_samples, bg_image[..., None, :]), dim=2)
+            density_samples_composite = torch.cat((density_samples, 1e10 * torch.ones(batch_size, ray.shape[1], 1, device=opt.device)), dim=2)
+            # Render coarse with/without background
+            rgb, depth, opacity, prob = self.composite(opt, ray, rgb_samples_composite, density_samples_composite, depth_samples_w_bg)
+            rgb_obj, depth_obj, opacity_obj, prob_obj = self.composite(opt, ray, rgb_samples, density_samples, depth_samples)
             if opt.nerf.fine_sampling:
                 with torch.no_grad():
-                    if i == 0:
-                        pass
-                        # Foreground objects: bundle adjusting pose and conditional nerf
-                    else:
-                        # resample depth acoording to coarse empirical distribution
-                        depth_samples_fine = self.sample_depth_from_pdf(opt, batch_size, pdf=prob[..., 0])  # [B,HW,Nf,1]
-                        depth_samples_fine = torch.cat([depth_samples.expand([depth_samples_fine.shape[0], -1, -1, -1]),
-                                                                              depth_samples_fine], dim=2)  # [B,HW,N+Nf,1]
-                        depth_samples_fine = depth_samples_fine.sort(dim=2).values
-
-                        rgb_samples, density_samples = self.scannerf[2 * i].forward_samples(opt, center, ray,
-                                                                                                depth_samples_fine,
-                                                                                                latent,
-                                                                                                pose,
-                                                                                                mode=mode)
-                        composite_rgb_samples_fine += rgb_samples
-                        composite_density_samples_fine += density_samples
+                    # resample depth acoording to coarse empirical distribution
+                    depth_samples_fine = self.sample_depth_from_pdf(opt, batch_size, pdf=prob_obj[..., 0])  # [B,HW,Nf,1]
+                    depth_samples_fine = torch.cat([depth_samples.expand([depth_samples_fine.shape[0], -1, -1, -1]),
+                                                                          depth_samples_fine], dim=2)  # [B,HW,N+Nf,1]
+                    depth_samples_fine = depth_samples_fine.sort(dim=2).values
+                    # Cat fine depth samples with pseudo-background depth
+                    depth_samples_fine_w_bg = torch.cat((depth_samples_fine, torch.unsqueeze(depth_samples_w_bg[:, :, -1, :], 2)), dim=2)
+                    # Render with fine
+                    rgb_samples_fine, density_samples_fine = self.scannerf[i+1].forward_samples(opt, center, ray,
+                                                                                                  depth_samples_fine,
+                                                                                                  latent,
+                                                                                                  pose,
+                                                                                                  mode=mode)
+                    rgb_samples_fine_composite = torch.cat((rgb_samples_fine, bg_image[..., None, :]), dim=2)
+                    density_samples_fine_composite = torch.cat((density_samples_fine, 1e10 * torch.ones(batch_size, ray.shape[1], 1, device=opt.device)), dim=2)
 
 
-        composite_rgb_samples = torch.cat(tuple(composite_rgb_samples), dim=2)
-        composite_density_samples = torch.cat(tuple(composite_density_samples), dim=2)
-        composite_depth_samples = torch.cat((depth_samples, bg_depth_samples), dim=2)
 
-        rgb, depth, opacity, prob = self.composite(opt, ray, composite_rgb_samples, composite_density_samples,
-                                                   composite_depth_samples)
-        rgb_fine, depth_fine, opacity_fine, prob_fine = self.composite(opt, ray, composite_rgb_samples_fine,
-                                                                       composite_density_samples_fine,
-                                                                       depth_samples_fine)
-
+        # Render fine
+        rgb_fine_obj, depth_fine_obj, opacity_fine_obj, prob_fine_obj = self.composite(opt, ray, rgb_samples_fine,
+                                                                                       density_samples_fine,
+                                                                                       depth_samples_fine)
+        rgb_fine, depth_fine, opacity_fine, prob_fine = self.composite(opt,
+                                                                       ray,
+                                                                       rgb_samples_fine_composite,
+                                                                       density_samples_fine_composite,
+                                                                       depth_samples_fine_w_bg)
         return edict(rgb=rgb, depth=depth, opacity=opacity,
-                     rgb_fine=rgb_fine, depth_fine=depth_fine, opacity_fine=opacity_fine)  # [B,HW,K]
+                     rgb_fine=rgb_fine, depth_fine=depth_fine, opacity_fine=opacity_fine,
+                     rgb_obj=rgb_obj, depth_obj=depth_obj, opacity_obj = opacity_obj,
+                     rgb_fine_obj=rgb_fine_obj, depth_fine_obj=depth_fine_obj, opacity_fine_obj=opacity_fine_obj)  # [B,HW,K]
 
-    def render_by_slices(self, opt, pose, latent, sample_image_idx=None, intr=None, mode=None):
+    def render_by_slices(self, opt, pose, latent, bg_image, sample_image_idx=None, intr=None, mode=None):
         if sample_image_idx is not None:
             intr = intr[sample_image_idx]
+            bg_image = bg_image[sample_image_idx]
         ret_all = edict(rgb=[], depth=[], opacity=[])
+        ret_all.update(rgb_obj=[], depth_obj=[], opacity_obj=[])
         if opt.nerf.fine_sampling:
-            ret_all.update(rgb_fine=[], depth_fine=[], opacity_fine=[])
+            ret_all.update(rgb_fine=[], depth_fine=[], opacity_fine=[], rgb_fine_obj=[], depth_fine_obj=[], opacity_fine_obj=[])
         # render the image by slices for memory considerations
         for c in tqdm.tqdm(range(0, opt.H * opt.W, opt.nerf.val_rand_rays)):
             ray_idx = torch.arange(c, min(c + opt.nerf.val_rand_rays, opt.H * opt.W), device=opt.device)
-            ret = self.render(opt, pose, latent, sample_image_idx=sample_image_idx, intr=intr, ray_idx=ray_idx, mode=mode)  # [B,R,3],[B,R,1]
+            ret = self.render(opt, pose, latent, bg_image, sample_image_idx=sample_image_idx, intr=intr, ray_idx=ray_idx, mode=mode)  # [B,R,3],[B,R,1]
             for k in ret: ret_all[k].append(ret[k])
         # group all slices of images
         for k in ret_all: ret_all[k] = torch.cat(ret_all[k], dim=1)
         return ret_all
 
-    def sample_depth(self, opt, batch_size, num_rays=None, background=False):
+    def sample_depth(self, opt, batch_size, num_rays=None):
         depth_min, depth_max = opt.nerf.depth.range
-        if background:
-            depth_min, depth_max = opt.nerf.depth.bg_range
         num_rays = num_rays or opt.H * opt.W
         rand_samples = torch.rand(batch_size, num_rays, opt.nerf.sample_intvs, 1, device=opt.device) \
             if opt.nerf.sample_stratified else 0.5
         rand_samples += torch.arange(opt.nerf.sample_intvs, device=opt.device)[None, None, :,
                         None].float()  # [B,HW,N,1]
         depth_samples = rand_samples / opt.nerf.sample_intvs * (depth_max - depth_min) + depth_min  # [B,HW,N,1]
+        bg_sample = depth_max + 0.05 * torch.ones(batch_size, num_rays, 1, 1, device=opt.device)
+        depth_samples_w_bg = torch.cat((depth_samples, bg_sample), dim=2)
         depth_samples = dict(
             metric=depth_samples,
-            inverse=1 / (depth_samples + 1e-8),
+        inverse=1 / (depth_samples + 1e-8),
         )[opt.nerf.depth.param]
-        return depth_samples
+        return depth_samples, depth_samples_w_bg
 
     def sample_depth_from_pdf(self, opt, batch_size, pdf, background=False):
         depth_min, depth_max = opt.nerf.depth.range
@@ -673,15 +681,16 @@ class CondNeRF(torch.nn.Module):
             torch.nn.init.xavier_uniform_(linear.weight, gain=relu_gain)
         torch.nn.init.zeros_(linear.bias)
 
-    def forward(self, opt, points_3D, latent, ray_unit=None, mode=None):
+    def forward(self, opt, points_3D, latent, ray_unit=None, mode=None, it=None):
         points_enc = self.positional_encoding(opt, points_3D, L=opt.arch.posenc.L_3D)
         points_enc = torch.cat([points_3D, points_enc, latent], dim=-1)  # [B,...,3 + 6L_3D + dim_latent]
         feat = points_enc
-
-        # extract coordinate-based, latent-conditioned features
+        #extract coordinate-based, latent-conditioned features
         for li, layer in enumerate(self.mlp_feat):
             if li in opt.arch.skip: feat = torch.cat([feat, points_enc], dim=-1)
             feat = layer(feat)
+            #if it is not None and it == 100 and li==len(self.mlp_feat)-1:
+            #    ipdb.set_trace()
             if li == len(self.mlp_feat) - 1:
                 density = feat[..., 0]
                 if opt.nerf.density_noise_reg and mode == "train":
@@ -707,7 +716,7 @@ class CondNeRF(torch.nn.Module):
         rgb = feat.sigmoid_()  # [B,...,3]
         return rgb, density
 
-    def forward_samples(self, opt, center, ray, depth_samples, latent, pose ,mode=None):
+    def forward_samples(self, opt, center, ray, depth_samples, latent, pose ,mode=None, it=None):
         """
         center, ray -> [B, n_rays, 3]
         depth_samples -> [B, n_rays, n_samples, 1]
@@ -734,7 +743,7 @@ class CondNeRF(torch.nn.Module):
             ray_unit_samples = None
 
         rgb_samples, density_samples = self.forward(opt, points_3D_samples, latent, ray_unit=ray_unit_samples,
-                                                    mode=mode)  # [B,HW,N],[B,HW,N,3]
+                                                    mode=mode, it=it)  # [B,HW,N],[B,HW,N,3]
         return rgb_samples, density_samples
 
     def positional_encoding(self, opt, input, L):  # [B,...,N] (BARF-style)
